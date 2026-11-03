@@ -1,0 +1,18 @@
+# 统一换行符与文本判定，避免 Windows / macOS 协作时整文件 diff
+* text=auto eol=lf
+
+*.py   text diff=python
+*.json text
+*.md   text
+*.yml  text
+*.yaml text
+*.txt  text
+*.spec text
+.gitignore text
+.gitattributes text
+
+# 二进制资源，Git 不做换行转换、不显示文本 diff
+*.png  binary
+*.ico  binary
+*.exe  binary
+*.zip  binary

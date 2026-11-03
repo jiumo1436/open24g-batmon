@@ -1,0 +1,48 @@
+{
+  "format": "dianliang-device-pack",
+  "version": 1,
+  "template": true,
+  "note": "串口接收器协议模板。复制一份改名（小写英文 + 连字符，文件名里不要带 template），把端口参数和帧改成你设备的真值。port 留空 = 跟随软件「设置 → 串口接收器」里手动选的端口，逐个尝试；只有设备必须独占固定端口时才写 \"COM3\" 这种值。",
+  "devices": [
+    {
+      "key": "my-serial-device",
+      "name": "我的串口设备",
+      "type": "mouse",
+      "wire": "串口",
+      "protocol": "串口私有协议 V1",
+
+      "transport": {
+        "type": "serial",
+        "port": "",
+        "baud": 115200,
+        "bytesize": 8,
+        "parity": "N",
+        "stopbits": "1",
+        "in_len": 512,
+        "out_len": 0
+      },
+
+      "read": {
+        "passive_ms": 0,
+        "pre": [],
+        "pre_delay_ms": 0,
+        "query": ["01 03 00 00 00 01"],
+        "checksum": {
+          "mode": "sum_tail",
+          "from": 0,
+          "to": 5,
+          "at": 5
+        },
+        "pad_to": 0,
+        "attempts": 2,
+        "listen_ms": 600,
+        "reply": {
+          "contains": ["01 03"],
+          "checksum": { "mode": "none" },
+          "battery": { "byte": 3 },
+          "range": [1, 100]
+        }
+      }
+    }
+  ]
+}

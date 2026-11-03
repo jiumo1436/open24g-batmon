@@ -1,0 +1,72 @@
+name: 新增设备配置
+description: 申请新增一台设备的协议配置（提交前请先阅读贡献指南）
+title: "[config] 品牌 型号"
+labels: ["config"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **这是一份「配置申请」，不是 PR。** 真正合入需要按 [贡献指南](../blob/main/docs/contribute-guide.md)
+        提交 PR，并附上抓包日志与实测截图。
+
+        如果你的配置已经写好，请直接开 PR，不必先在这里登记。
+
+  - type: input
+    id: model
+    attributes:
+      label: 品牌与型号
+      description: 尽量写完整，例如「Logitech G304」「狼蛛 F87」
+      placeholder: 品牌 型号
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 设备类型
+      options:
+        - 鼠标
+        - 键盘
+        - 耳机
+        - 手柄
+        - 其它
+    validations:
+      required: true
+
+  - type: dropdown
+    id: transport
+    attributes:
+      label: 接收器类型
+      options:
+        - 2.4G HID 接收器（USB 报文）
+        - 串口 / 虚拟 COM
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: ids
+    attributes:
+      label: VID / PID / usage_page
+      description: 设备管理器 → 属性 → 详细信息 → 硬件 Id 里可以看到；不确定可留空
+      render: text
+      placeholder: |
+        VID_1234&PID_1001
+        usage_page 0xFF00
+
+  - type: textarea
+    id: status
+    attributes:
+      label: 当前情况
+      description: 例如「仓库里的配置都匹配不到我的接收器」「能匹配到但读不到数」「读到 0%」
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: 你愿意做什么
+      options:
+        - label: 我可以自己抓包并写配置，之后提 PR
+        - label: 我可以提供抓包日志，但不会写配置
+        - label: 我可以帮忙测试别人写的配置（需寄送设备则另议）

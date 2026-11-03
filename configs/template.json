@@ -1,0 +1,85 @@
+{
+  "format": "dianliang-device-pack",
+  "version": 1,
+  "template": true,
+  "note": "协议模板。复制一份改名（文件名用小写英文与连字符，且不要含 template），把里面的值改成你设备的真值即可；以下划线开头的键只是注释，程序会忽略。一个文件可以放多台设备（devices 数组里多写几个对象）。注意：vid 还是 0x0000 时导入不会匹配到任何设备，这是正常的——它只是格式参考。字段完整说明见 docs/config-schema.md，编写步骤见 docs/config-making-guide.md。",
+  "devices": [
+    {
+      "_注释_设备信息": "name 必填，会显示在卡片上；key 是内部唯一名，不写就用 name；type 决定卡片图标（mouse/keyboard/headphone/gamepad/other）。",
+      "key": "mydevice",
+      "name": "我的设备",
+      "type": "mouse",
+      "wire": "2.4G",
+      "protocol": "厂商私有协议 V1",
+
+      "_注释_传输方式": "transport 不写就按 hid 处理。hid 适合 2.4G 接收器（USB HID 设备）；serial 适合串口接收器。串口不写 port 时，用软件「设置 → 串口接收器」里手动选的端口，再不行就逐个尝试本机串口 —— 配置里不需要写死任何 COM 号。",
+      "transport": {
+        "type": "hid",
+        "_串口示例": "{\"type\": \"serial\", \"port\": \"\", \"baud\": 115200, \"bytesize\": 8, \"parity\": \"N\", \"stopbits\": \"1\", \"in_len\": 512, \"out_len\": 0}",
+        "_字段说明": "port 可留空（交给用户在界面选）；baud 300~4000000；bytesize 5~8；parity N/O/E/M/S；stopbits 1/1.5/2；in_len/out_len 是单次读写的缓冲上限。"
+      },
+
+      "match": {
+        "_注释_识别条件": "程序拿这些条件去本机 HID 设备表里筛接口。hid 设备必须给 vid 或 product_contains；串口设备不需要 match（整个串口就是一个通道）。",
+        "_注释_写法": "vid/pid/usage_page 写成 \"0x3554\" 这样；min_in/min_out 是报文长度下限（字节）；product_contains 是产品名包含的片段，可写多个。",
+        "vid": "0x0000",
+        "pid": "0x0000",
+        "usage_page": "0xFF00",
+        "min_in": 16,
+        "min_out": 16,
+        "product_contains": ["WIRELESS"]
+      },
+
+      "read": {
+        "_注释_读取流程": "先 passive_ms 纯听（设备主动推电量就靠这个），再发 pre 握手帧，等待 pre_delay_ms，然后发 query 查询帧，每发一帧最多听 listen_ms，整套重试 attempts 次。",
+        "passive_ms": 0,
+        "pre": [],
+        "pre_delay_ms": 0,
+        "query": [
+          "AA BB CC 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        ],
+        "checksum": {
+          "_注释_校验": "mode 可选 none / sum_tail / sum_neg；from-to 是切片（含头不含尾），at 是校验字节写在第几位；sum_neg 还要 seed。发送帧和回包各写一份。",
+          "mode": "none",
+          "from": 1,
+          "to": 16,
+          "at": 16,
+          "seed": "0x00"
+        },
+        "pad_to": 17,
+        "send": "auto",
+        "attempts": 2,
+        "listen_ms": 600,
+
+        "reply": {
+          "_注释_回包": "contains 是回包里的锚点字节（找到它才解析，且下面的 byte 下标从锚点算起）；battery.byte 是电量起始位；range 是允许的百分比范围，越界就当作没读到；battery.zero_is_off 设 true 时，电量读到 0 视为「关机假帧」，显示「未响应」而不是 0%。",
+          "contains": ["AA BB"],
+          "checksum": { "mode": "none" },
+
+          "_注释_电量换算": "只写 byte 就是「该字节 = 百分比」。要更复杂的换算，按需加下面任意组合：bytes/order 取多字节，mask/shift 抠位，mode=hi|lo 取半字节，scale/offset 线性换算，map 查表插值，formula 公式（变量 x = 原始值），read_as=voltage 按电压区间映射。优先级：formula > map > read_as=voltage > scale/offset。",
+          "battery": {
+            "byte": 5,
+            "bytes": 1,
+            "order": "big",
+            "mask": "",
+            "shift": 0,
+            "mode": "raw",
+            "scale": 1,
+            "offset": 0,
+            "formula": "",
+            "map": [],
+            "read_as": "percent",
+            "voltage_scale": 0.01,
+            "voltage_min": 3.0,
+            "voltage_max": 4.2,
+            "zero_is_off": false
+          },
+          "_换算示例": "两字节小端电量：{\"byte\": 5, \"bytes\": 2, \"order\": \"little\", \"scale\": 0.1}；电压转百分比：{\"byte\": 5, \"read_as\": \"voltage\", \"voltage_scale\": 0.001, \"voltage_min\": 3300, \"voltage_max\": 4200}；查表：{\"byte\": 5, \"map\": [[0,0],[10,100]]}；公式：{\"byte\": 5, \"formula\": \"min(100, x*2-10)\"}",
+
+          "charging": { "byte": 6, "mask": "0xFF" },
+          "range": [1, 100]
+        }
+      }
+    }
+  ]
+}

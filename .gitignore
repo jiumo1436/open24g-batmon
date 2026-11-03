@@ -1,0 +1,58 @@
+# ---------- 用户私有数据（运行时生成，绝不提交）----------
+# 个人偏好：电量配色 / 托盘 / 开机自启 / 低电量提醒 / 串口端口
+user_settings.json
+# 用户导入的设备列表（下次启动自动加载）
+devices.json
+# 上次读数缓存
+cache.json
+# 程序日志（超过 1MB 自动滚存为 error.log.1）
+error.log
+error.log.1
+*.log
+# 导入 / 导出协议时自动留存的副本
+协议库/
+
+# 用户自己调试中的配置（下划线开头视为本地草稿，不入库；示例配置照常入库）
+configs/_*
+configs/**/_local/
+configs/**/_draft/
+
+# ---------- 抓包与调试素材（PR 里以附件提供，不进仓库）----------
+*.pcap
+*.pcapng
+*.cap
+capture-*.txt
+wireshark*.txt
+usbpcap*.log
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+*.egg-info/
+
+# ---------- 打包产物 ----------
+build/
+dist/
+release/
+*.manifest
+# PyInstaller 生成的中间文件
+*.toc
+
+# ---------- 编辑器 / 系统 ----------
+.idea/
+.vscode/
+.workbuddy/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- 本地环境 ----------
+.env
+.env.local

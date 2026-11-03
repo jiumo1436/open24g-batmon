@@ -1,0 +1,61 @@
+{
+  "_说明": "语法示例（HID 单字节电量）。VID / PID / 帧头 / 校验种子全部为虚构值，不对应任何真实产品或私人抓包。",
+  "format": "dianliang-device-pack",
+  "version": 1,
+  "note": "示例：单字节电量 + 发送帧取反校验（sum_neg）+ 充电标志位。真实设备请按 docs/config-making-guide.md 抓包后填写。",
+  "devices": [
+    {
+      "key": "example-mouse-s1",
+      "name": "示例鼠标 S1",
+      "type": "mouse",
+      "wire": "2.4G",
+      "protocol": "示例协议 V1",
+
+      "transport": {
+        "type": "hid"
+      },
+
+      "match": {
+        "_说明": "同一个 VID 下通常有键盘、鼠标、厂商私有等多个接口；用 usage_page + 报文长度挑出私有接口。",
+        "vid": "0x1234",
+        "pid": "0x1001",
+        "usage_page": "0xFF00",
+        "min_in": 17,
+        "min_out": 17
+      },
+
+      "read": {
+        "query": [
+          "A5 5A 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        ],
+        "checksum": {
+          "_说明": "校验字节放在第 16 位，取值 = (0x00 - 第 1~15 字节之和) & 0xFF",
+          "mode": "sum_neg",
+          "from": 1,
+          "to": 16,
+          "at": 16,
+          "seed": "0x00"
+        },
+        "pad_to": 17,
+        "attempts": 2,
+        "listen_ms": 600,
+
+        "reply": {
+          "contains": ["A5 5A"],
+          "checksum": {
+            "mode": "none"
+          },
+          "battery": {
+            "_说明": "锚点之后第 5 个字节就是百分比，直接取用",
+            "byte": 5
+          },
+          "charging": {
+            "byte": 6,
+            "mask": "0x01"
+          },
+          "range": [1, 100]
+        }
+      }
+    }
+  ]
+}

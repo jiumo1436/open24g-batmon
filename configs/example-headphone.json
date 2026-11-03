@@ -1,0 +1,58 @@
+{
+  "_说明": "语法示例（串口接收器 + 电压换算 + 关机假帧）。端口、协议、数值全部为虚构，不对应任何真实产品或私人抓包。",
+  "format": "dianliang-device-pack",
+  "version": 1,
+  "note": "示例：串口接收器（virtual COM）。回包给的是毫伏而不是百分比，用 read_as=voltage 映射到 0~100%；设备关机时回全 0 假帧，用 zero_is_off 避免显示成 0%。",
+  "devices": [
+    {
+      "key": "example-headphone-h7",
+      "name": "示例耳机 H7",
+      "type": "headphone",
+      "wire": "串口",
+      "protocol": "示例串口协议 V1",
+
+      "transport": {
+        "_说明": "port 留空 = 跟随软件「设置 → 串口接收器」里手动选的端口；不要写死 COM 号（别人的电脑上不一定是同一个口）。",
+        "type": "serial",
+        "port": "",
+        "baud": 9600,
+        "bytesize": 8,
+        "parity": "N",
+        "stopbits": "1",
+        "in_len": 256,
+        "out_len": 0
+      },
+
+      "read": {
+        "query": [
+          "7E 01 00 00 00 00"
+        ],
+        "checksum": {
+          "mode": "sum_tail",
+          "from": 0,
+          "to": 5,
+          "at": 5
+        },
+        "attempts": 2,
+        "listen_ms": 500,
+
+        "reply": {
+          "contains": ["7E 01"],
+          "battery": {
+            "_说明": "第 3~4 字节是大端毫伏值，例如 0x0F A0 = 4000 → 4.000V → 映射到 3300~4200mV 区间的 77%",
+            "byte": 3,
+            "bytes": 2,
+            "order": "big",
+            "read_as": "voltage",
+            "voltage_scale": 0.001,
+            "voltage_min": 3.3,
+            "voltage_max": 4.2,
+            "_关机假帧": "关机后有些设备仍回帧，但电能字段是 0；必须当成「未响应」，否则会看到 0% 的假读数",
+            "zero_is_off": true
+          },
+          "range": [0, 100]
+        }
+      }
+    }
+  ]
+}

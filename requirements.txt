@@ -1,0 +1,10 @@
+# 运行必需
+PySide6>=6.5
+
+# YAML 配置支持（导入 .yaml / .yml）。只用 JSON 时不装也能跑；
+# 打包好的 exe 已内置，双击即用，无需安装任何东西。
+PyYAML>=6.0
+
+# 说明：HID 走 Windows 原生 SetupAPI / CreateFile，串口走 kernel32 的
+# CreateFile / SetCommState / ReadFile / WriteFile（都由 ctypes 调用），
+# 因此不需要 hidapi / pyserial 等第三方通信库。

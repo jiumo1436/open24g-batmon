@@ -1,0 +1,48 @@
+name: validate-configs
+
+# 只做「格式与逻辑」校验：JSON 语法、字段完整性、参数合理性。
+# 维护者不做实物硬件验证，CI 也无法替代实测 —— 见 docs/contribute-guide.md。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "configs/**"
+      - "tools/**"
+      - "app.py"
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - "configs/**"
+      - "tools/**"
+      - "app.py"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: 校验设备配置
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install PySide6 PyYAML
+
+      - name: 校验配置（与软件内导入使用同一套逻辑）
+        run: python tools/validate-config.py configs
+
+      - name: 检查文件名规范
+        run: python tools/check-filenames.py
