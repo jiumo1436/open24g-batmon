@@ -17,6 +17,14 @@ import os
 import re
 import sys
 
+# GitHub Actions 的 Windows 运行器默认用 cp1252 输出，直接打印中文会抛
+# UnicodeEncodeError 导致 CI 误判失败，这里强制切到 UTF-8。
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Git 生态约定俗成、必须保持大写的名字（GitHub 首页 / 许可证 / issue 模板依赖它们）

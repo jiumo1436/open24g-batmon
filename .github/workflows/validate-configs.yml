@@ -27,6 +27,10 @@ jobs:
     name: 校验设备配置
     runs-on: windows-latest
     timeout-minutes: 15
+    env:
+      # 脚本输出是中文，Windows 运行器默认 cp1252 会抛 UnicodeEncodeError
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
