@@ -128,12 +128,13 @@ python -m PyInstaller --clean --noconfirm open24g-batmon.spec
 ### 4.2 组装发布包
 
 ```bash
-mkdir -p release/batmon-1.0.0-win64
-cp dist/设备电量监控.exe release/batmon-1.0.0-win64/
-cp -r configs release/batmon-1.0.0-win64/configs
-rm -f release/batmon-1.0.0-win64/configs/template.json \
-      release/batmon-1.0.0-win64/configs/serial-template.json
-cd release && 7z a batmon-1.0.0-win64.zip batmon-1.0.0-win64
+mkdir -p release/open24g-batmon-1.0.0-win64
+cp dist/设备电量监控.exe release/open24g-batmon-1.0.0-win64/
+cp -r configs release/open24g-batmon-1.0.0-win64/configs
+cp docs/quick-start.txt release/open24g-batmon-1.0.0-win64/
+rm -f release/open24g-batmon-1.0.0-win64/configs/template.json \
+      release/open24g-batmon-1.0.0-win64/configs/serial-template.json
+cd release && 7z a open24g-batmon-1.0.0-win64.zip open24g-batmon-1.0.0-win64
 ```
 
 发布包内只放**能直接导入的配置**，模板文件留在仓库里即可。
@@ -142,10 +143,10 @@ cd release && 7z a batmon-1.0.0-win64.zip batmon-1.0.0-win64
 
 ```bash
 # Windows（PowerShell）
-Get-FileHash .\batmon-1.0.0-win64.zip -Algorithm SHA256
+Get-FileHash .\open24g-batmon-1.0.0-win64.zip -Algorithm SHA256
 
 # Git Bash / Linux
-sha256sum batmon-1.0.0-win64.zip
+sha256sum open24g-batmon-1.0.0-win64.zip
 ```
 
 把结果贴进 Release 说明的「校验和」一节 —— 用户下载后可以自行核对。
@@ -157,7 +158,7 @@ git tag -a v1.0.0 -m "open24g-batmon v1.0.0"
 git push origin v1.0.0
 
 gh release create v1.0.0 \
-  release/batmon-1.0.0-win64.zip \
+  release/open24g-batmon-1.0.0-win64.zip \
   --title "v1.0.0 · 首个公开版本" \
   --notes-file docs/release-notes-template.md
 ```

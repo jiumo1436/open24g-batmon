@@ -20,13 +20,13 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `batmon-{{版本号}}-win64.zip` | 免安装，解压即用（含 exe + configs） |
-| `batmon-{{版本号}}-win64.zip.sha256` | 校验和 |
+| `open24g-batmon-{{版本号}}-win64.zip` | 免安装，解压即用（含 exe + configs） |
+| `open24g-batmon-{{版本号}}-win64.zip.sha256` | 校验和 |
 
 解压后目录结构：
 
 ```
-batmon-{{版本号}}-win64/
+open24g-batmon-{{版本号}}-win64/
 ├── 设备电量监控.exe
 └── configs/            # 设备协议配置，可自行增删
 ```
@@ -65,13 +65,13 @@ batmon-{{版本号}}-win64/
 ### 校验和
 
 ```
-SHA256  batmon-{{版本号}}-win64.zip = {{粘贴 Get-FileHash / sha256sum 的结果}}
+SHA256  open24g-batmon-{{版本号}}-win64.zip = {{粘贴 Get-FileHash / sha256sum 的结果}}
 ```
 
 Windows 校验：
 
 ```powershell
-Get-FileHash .\batmon-{{版本号}}-win64.zip -Algorithm SHA256
+Get-FileHash .\open24g-batmon-{{版本号}}-win64.zip -Algorithm SHA256
 ```
 
 ### 升级说明
