@@ -3,6 +3,7 @@
 **通用 2.4G 无线外设电量监控（Windows 桌面程序）—— 配置驱动，新增设备只需要加一份 JSON。**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/jiumo1436/open24g-batmon?label=%E4%B8%8B%E8%BD%BD&color=success)](https://github.com/jiumo1436/open24g-batmon/releases/latest)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-lightgrey)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![Config driven](https://img.shields.io/badge/protocol-config%20driven-brightgreen)
@@ -55,10 +56,16 @@ HID（USB 报文）与串口（虚拟 COM）两条通道共用同一套通用解
 
 ## 快速开始
 
-**方式一：直接运行打包版**
+**方式一：直接下载打包版（推荐，免装 Python）**
 
-下载 Release 里的 `batmon-<版本>-win64.zip`，解压后双击 `设备电量监控.exe`。
-`configs/` 与 exe 放在同一目录（压缩包内已带好）。
+👉 **下载页：<https://github.com/jiumo1436/open24g-batmon/releases/latest>**
+
+在 Releases 页面下载 `open24g-batmon-<版本>-win64.zip`，解压后双击 `设备电量监控.exe`。
+`configs/` 必须与 exe 放在同一目录（压缩包内已带好）。
+
+> **为什么仓库里看不到 `dist/` 和 exe？** 可执行文件属于「构建产物」，体积大（单文件 46 MB）、
+> 二进制无法代码审查，所以不入版本库，统一通过 Releases 分发；仓库里只放源码和配置。
+> 想自己从源码打包见文末「打包」一节。
 
 **方式二：源码运行**
 
