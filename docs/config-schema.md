@@ -139,7 +139,7 @@
 | `read_as` | string | `percent` | `percent` 直接用；`voltage` 先按电压换算；`raw` 原样 |
 | `voltage_scale` | number | `0.01` | `read_as=voltage` 时：电压 = 原始值 × 该系数 |
 | `voltage_min` / `voltage_max` | number | `0` / `100` | 电压区间线性映射到 0~100% |
-| `zero_is_off` | bool | `false` | 读到 0 视为「关机假帧」→ 界面显示「已关机 + 上次读数」，绝不显示成 0%，也不触发低电量提醒 |
+| `zero_is_off` | bool | `false` | 读到 0 视为「关机假帧」→ 界面显示「已关机 + 上次读数」，绝不显示成 0%，也不触发低电量提醒。**默认关闭**：协议层无法区分「关机回的 0」与「真的用到 0%」，程序不做猜测，需按设备实际表现自行声明（判断方法见 [configs/README](../configs/README.md#关机假帧zero_is_off-该不该开)） |
 
 常用写法：
 
