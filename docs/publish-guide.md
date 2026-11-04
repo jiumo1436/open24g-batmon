@@ -153,8 +153,20 @@ cp -r dist/设备电量监控/. "release/v${VER}/${BASE}/"
 cp -r configs "release/v${VER}/${BASE}/configs"
 cp docs/quick-start.txt "release/v${VER}/${BASE}/"
 cp LICENSE "release/v${VER}/${BASE}/"
+
+# 必须先清掉运行时产生的私有文件，再打包（见下方说明）
+cd "release/v${VER}/${BASE}"
+rm -f crash.log error.log cache.json devices.json user_settings.json
+rm -rf 协议库
 cd "release/v${VER}" && 7z a ${BASE}.zip ${BASE}
 ```
+
+> ⚠️ **打包前一定要清掉运行时文件。** `dist/设备电量监控/` 不只是构建产物 ——
+> 只要在这台机器上运行过一次，exe 同目录就会多出 `user_settings.json`（配色、提醒阈值）、
+> `cache.json`（上次读数）、`devices.json`（导入的设备）、`协议库/`、`error.log`、`crash.log`。
+> `cp -r dist/.../.` 会把它们原样带进发布包，等于把自己的私有配置发给所有用户。
+> 这几种文件都可能出现，**每次发版都要逐个检查一遍 `ls` 结果**，不要只看有没有报错。
+> 更省事的做法：`unzip -l` 检查成品包里有没有这几个名字，有就重打。
 
 **发布包要带完整 `configs/`（`devices/` + `templates/`）**，不要只带实机配置：
 

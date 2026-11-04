@@ -31,6 +31,7 @@ import math
 import ast
 import ctypes
 import threading
+import warnings
 from ctypes import wintypes
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -408,8 +409,12 @@ def log_err(msg):
     except OSError:
         pass
     try:
+        # 带上时间戳：排查「几点几分崩的、崩溃前最后一次刷新是几秒」时，
+        # 没有时间的日志基本没用 —— 之前就是这么丢掉线索的。
+        stamp = time.strftime("[%m-%d %H:%M:%S] ")
+        pad = " " * len(stamp)
         with open(path, "a", encoding="utf-8") as f:
-            f.write(msg + "\n")
+            f.write(stamp + msg.replace("\n", "\n" + pad) + "\n")
     except Exception:
         pass
     try:
@@ -421,6 +426,11 @@ def log_err(msg):
 
 
 _CRASH_LOG = None
+
+# 没人认领的后台线程。兜底容器：只有在「线程确实还卡在驱动里、而它的宿主窗口
+# 已经要销毁」这种极端情况下才往里放。宁可多留一个几十字节的对象，也不能让
+# QThread 在运行中被析构 —— 那会让整个进程直接 abort（0xc0000409）。
+_ORPHAN_WORKERS = []
 
 
 def _install_crash_handlers():
@@ -3563,6 +3573,16 @@ class CardMenu(QFrame):
         self.show()
         self.setFocus()
 
+    def hideEvent(self, event):
+        """用完即弃：这个菜单每次右键都新建一个，父对象是主窗口。
+
+        Qt.Popup 关闭时只会 hide，不会销毁；父窗口又一直活着 —— 于是每右键
+        一次就多留一整个隐藏窗口（连同它下面自绘的控件和阴影特效）。托盘常驻
+        程序开一整天，这个数字会一直涨。隐藏之后把它交给事件循环回收。
+        """
+        super().hideEvent(event)
+        self.deleteLater()
+
 
 class DeviceCard(QFrame):
     """一行设备卡片：左图标 / 中名称+状态徽章 / 右电量百分比+电量条。
@@ -3870,6 +3890,15 @@ class TrayController(QObject):
         self.icon.setContextMenu(menu)
         self.icon.activated.connect(self._on_activated)
         self._menu_sig = None
+        # 托盘刷新要合并、且必须离开当前调用栈再发。
+        # setIcon / Shell_NotifyIcon 走外壳的 COM 通道，如果在「输入同步调用」
+        # （窗口正在处理消息、用户正点菜单）的栈里直接发，Windows 会返回
+        # 0x8001010d（RPC_E_CANTCALLOUT_ININPUTSYNCCALL）；这条 SEH 异常冒到
+        # Qt 内部就没有 Python 能接住了，进程会直接消失。
+        # 所以 update() 只记下最新值，真正落地交给 _flush()，在事件循环的下一轮
+        # 执行 —— 顺带把「一轮刷新里连改好几次图标」合并成一次。
+        self._pending = None
+        self._flush_queued = False
 
     def _on_activated(self, reason):
         # 左键单击（Trigger）/ 双击：唤起主界面
@@ -3949,7 +3978,27 @@ class TrayController(QObject):
             (colors or [])[:self.RING_LAYERS]))
 
     def update(self, rows, colors, idle=0):
-        """rows: [(名称, 电量)]，按电量升序（低 → 高）；idle: 接收器在但没回话的台数。"""
+        """rows: [(名称, 电量)]，按电量升序（低 → 高）；idle: 接收器在但没回话的台数。
+
+        只暂存，不立即动托盘图标；见 __init__ 里关于 0x8001010d 的说明。
+        """
+        self._pending = (list(rows), list(colors), idle)
+        if not self._flush_queued:
+            self._flush_queued = True
+            QTimer.singleShot(0, self._flush)
+
+    def _flush(self):
+        self._flush_queued = False
+        pending = self._pending
+        self._pending = None
+        if pending is None:
+            return
+        try:
+            self._apply(*pending)
+        except Exception as e:
+            log_err("托盘刷新失败: " + repr(e))
+
+    def _apply(self, rows, colors, idle):
         levels = [p for _, p in rows][:self.RING_LAYERS]
         self._set_rings(levels, colors)
         # 悬停提示：全部读到电量的设备，电量高的在上面、最低的在最底下
@@ -4141,6 +4190,17 @@ class SettingsDialog(QDialog):
             self.cb_serial.addItem(port, port)
         cur = str(USER.get("serial_port") or "").strip().upper()
         idx = self.cb_serial.findData(cur) if cur else 0
+        if cur and idx < 0:
+            # 记着的串口已经不存在了（换了 USB 口、拔了接收器、换了机器）。
+            # 界面这时会回落到「自动选择」，可 USER 里那个旧值还在，而读取
+            # 时是优先用它的 —— 结果就是串口设备永远「未响应」，界面上却
+            # 看不出任何原因。这里顺手把失效的值清掉，让两边一致。
+            USER["serial_port"] = ""
+            try:
+                save_user_settings()
+            except Exception:
+                pass
+            idx = 0
         self.cb_serial.setCurrentIndex(idx if idx >= 0 else 0)
         self.cb_serial.blockSignals(False)
 
@@ -4276,23 +4336,32 @@ class MainWindow(QMainWindow):
         cached = load_cache()
         for k, v in cached.items():
             if k in self.results and isinstance(v, dict):
-                v = dict(v)
-                ok_at = v.pop("_ok_at", None)
-                has_b = v.get("battery") is not None
-                fresh = bool(has_b and ok_at
-                             and time.time() - float(ok_at) < self.STALE_KEEP)
-                if has_b and ok_at and not fresh:
-                    # 明确超过保鲜期：这个数字太旧了，别挂着冒充当前电量
-                    v.pop("battery", None)
-                    v.pop("charging", None)
-                elif has_b:
-                    # 还能用（或老版本缓存没记时间）：一律先按「上次读数」灰色显示，
-                    # 不写成绿色「已连接」—— 设备可能已经关机了，等这一轮刷新确认。
-                    # 老缓存没有时间戳时，保鲜期从本次启动重新起算，避免数字被抹成「—」。
-                    v["stale"] = True
-                    self._last_ok[k] = float(ok_at) if ok_at else time.time()
-                    v["stale_at"] = self._last_ok[k]   # 卡片上标「（10:32 读到）」
-                self.results[k] = v
+                # 缓存文件是明文 JSON，用户手改、写到一半断电、旧版本写坏格式都
+                # 可能让它带着不合法的值。这里必须逐条容错：一条坏数据不能把
+                # 整个窗口的构造搞挂，否则程序一启动就退出，用户完全不知道原因。
+                try:
+                    v = dict(v)
+                    ok_at = v.pop("_ok_at", None)
+                    has_b = v.get("battery") is not None
+                    if ok_at is not None:
+                        ok_at = float(ok_at)
+                    fresh = bool(has_b and ok_at
+                                 and time.time() - ok_at < self.STALE_KEEP)
+                    if has_b and ok_at and not fresh:
+                        # 明确超过保鲜期：这个数字太旧了，别挂着冒充当前电量
+                        v.pop("battery", None)
+                        v.pop("charging", None)
+                    elif has_b:
+                        # 还能用（或老版本缓存没记时间）：一律先按「上次读数」灰色
+                        # 显示，不写成绿色「已连接」—— 设备可能已经关机了，等这
+                        # 一轮刷新确认。老缓存没有时间戳时，保鲜期从本次启动重新
+                        # 起算，避免数字被抹成「—」。
+                        v["stale"] = True
+                        self._last_ok[k] = ok_at if ok_at else time.time()
+                        v["stale_at"] = self._last_ok[k]   # 卡片上标「（10:32 读到）」
+                    self.results[k] = v
+                except Exception as e:
+                    log_err("缓存条目异常已跳过 %r: %r" % (k, e))
         # 沿用上次选的刷新间隔（不在档位表里就回默认值）
         try:
             iv = int(cached.get("_interval", REFRESH_DEFAULT_S))
@@ -4343,6 +4412,23 @@ class MainWindow(QMainWindow):
         self._retry_pending = {}
         self._retry_workers = {}
         self._retry_ok = set()
+        self._retry_since = {}       # key -> 这次重读开始的时刻（防线程卡死后永久停更）
+        self.worker = None           # 当前这轮刷新的线程
+        self.probe_worker = None     # 当前这轮快探的线程
+        # 线程引用不能在线程还在跑的时候丢掉。
+        # worker 的 done / finished 信号是在 run() 的 finally 里发的，发出信号那一
+        # 刻 run() 还没 return；主线程如果在这个槽里把最后一个 Python 引用删掉，
+        # C++ 侧 QThread 析构时 isRunning() 仍为 True，Qt 会直接
+        # qFatal("QThread: Destroyed while thread is still running") 把进程带走
+        # —— 事件日志里就是 0xc0000409（FAST_FAIL_FATAL_APP_EXIT），连 Python
+        # 的 crash.log 都留不下，因为进程是被 abort() 立刻杀掉的。
+        # 所以：凡是可能还在跑的线程，一律先交给 _workers_retired 保管，
+        # 由 _reap_workers 每秒确认 isFinished() 后才真正放引用。
+        self._workers_retired = []
+        self._reaper = QTimer(self)
+        self._reaper.setInterval(1000)
+        self._reaper.timeout.connect(self._reap_workers)
+        self._reaper.start()
         self._idle_timer = QTimer(self)
         self._idle_timer.setInterval(self.IDLE_PROBE_MS)
         self._idle_timer.timeout.connect(self._probe_idle)
@@ -4505,7 +4591,11 @@ class MainWindow(QMainWindow):
     def open_import(self):
         """卡片最下方那行「＋ 导入设备」。"""
         dlg = ImportDialog(self)
-        if dlg.exec() != QDialog.Accepted:
+        try:
+            accepted = dlg.exec() == QDialog.Accepted
+        finally:
+            dlg.deleteLater()
+        if not accepted:
             return
         for p in PROFILES:
             self.results.setdefault(p["key"], {"state": "disconnected"})
@@ -4712,7 +4802,10 @@ class MainWindow(QMainWindow):
 
     def open_settings(self):
         dlg = SettingsDialog(self)
-        dlg.exec()
+        try:
+            dlg.exec()
+        finally:
+            dlg.deleteLater()
         self._render()      # 关掉设置后再对齐一次（开关可能改了托盘）
 
     # --------------------- 低电量提醒 ---------------------
@@ -4803,6 +4896,7 @@ class MainWindow(QMainWindow):
             self._input_timer.stop()
             self._idle_timer.stop()
             self._kick.stop()
+            self._reaper.stop()
         except Exception:
             pass
         # 退出时后台线程可能正卡在 HID 读取里：QThread 在运行中被销毁会让进程
@@ -4810,15 +4904,25 @@ class MainWindow(QMainWindow):
         # 3.3 秒，因此总共最多等 4 秒；线程本身也会看到 _quitting 提前 break。
         try:
             workers = list(getattr(self, "_retry_workers", {}).values())
-            pw = getattr(self, "probe_worker", None)
-            if pw is not None:
-                workers.append(pw)
-            deadline = time.time() + 4.0
+            # 刷新线程和「上一轮还没跑完、已交给回收站」的线程同样要等：
+            # 退出那一刻它们往往正卡在 ReadFile 上，等不到就直接析构会崩。
+            for extra in (getattr(self, "worker", None),
+                          getattr(self, "probe_worker", None)):
+                if extra is not None:
+                    workers.append(extra)
+            workers.extend(getattr(self, "_workers_retired", []))
+            deadline = time.time() + 8.0
             for w in workers:
-                if w is None or not w.isRunning():
+                if w is None:
+                    continue
+                try:
+                    if not w.isRunning():
+                        continue
+                except Exception:
                     continue
                 left = int((deadline - time.time()) * 1000)
                 if left <= 0:
+                    log_err("退出时仍有线程未收尾（已等 8 秒），只能强制结束")
                     break
                 w.wait(left)
         except Exception:
@@ -4827,6 +4931,65 @@ class MainWindow(QMainWindow):
             self._tray.hide()
         Toast.close_all()
         QApplication.quit()
+
+    # ---------------------------------------------------------------
+    #  后台线程的生命周期
+    # ---------------------------------------------------------------
+    def _retire_worker(self, w, drop_signals=True):
+        """把一个线程交给「回收站」：确认它真的结束之后才放掉引用。
+
+        这个方法是 0xc0000409 崩溃的修法。原来的写法是在 done 槽里直接
+        `pop` 掉字典里最后一个引用，而 done 信号恰恰是在 run() 的 finally
+        里发出的 —— 那一刻线程还没 return，Qt 认为它仍在运行；Python 侧一断
+        引用，QThread 析构函数就会 abort() 整个进程。
+
+        drop_signals=True 用于「换代」场景（上一轮还没跑完就要开新的一轮）：
+        先断开旧线程的信号，免得它的迟到结果覆盖新一轮的状态。
+        断开失败不要紧（可能已经断过或对象已销毁），一律忽略。
+        """
+        if w is None:
+            return
+        if drop_signals:
+            # 只对「还在跑」的旧线程断信号：已经跑完的线程要让它正常的回调
+            # 照常派发（比如 _on_refreshed 负责复位 _busy），不能一刀切。
+            try:
+                still_running = w.isRunning()
+            except Exception:
+                still_running = False
+            if still_running:
+                for name in ("one", "done", "finished", "row", "progress"):
+                    sig = getattr(w, name, None)
+                    if sig is None:
+                        continue
+                    try:
+                        # 没连过的信号（比如 IdleProbeWorker 从来不用 QThread 自带的
+                        # finished）断开时，PySide6 会往 stderr 打一条 RuntimeWarning。
+                        # 这是预期内的，静音掉，别让日志被噪声淹了。
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            sig.disconnect()
+                    except Exception:
+                        pass
+        try:
+            if w.isFinished():
+                return          # 已经结束，局部变量一断就是安全析构，不必留着
+        except Exception:
+            return              # C++ 对象已销毁，什么都不用做
+        self._workers_retired.append(w)
+
+    def _reap_workers(self):
+        """每秒扫一次回收站：线程真的结束了才放引用。"""
+        if not self._workers_retired:
+            return
+        alive = []
+        for w in self._workers_retired:
+            try:
+                if w.isFinished():
+                    continue
+            except Exception:
+                continue        # 对象已销毁，从列表里去掉
+            alive.append(w)
+        self._workers_retired = alive
 
     def refresh(self):
         if self._probing:
@@ -4845,6 +5008,10 @@ class MainWindow(QMainWindow):
         self._busy = True
         self._busy_since = time.time()
         self.status.setText("正在读取设备电量…" + ("（已显示上次读数）" if self._from_cache else ""))
+        # 上一轮的线程可能还卡在 HID 读取里（比如看门狗 20 秒强制解锁后才点刷新）：
+        # 直接覆盖 self.worker 会把它唯一的引用丢掉，线程在跑时析构 = 进程直接消失。
+        # 先交给回收站，并断开它的信号，免得旧结果串到这一轮来。
+        self._retire_worker(self.worker)
         self.worker = RefreshWorker()
         self.worker.one.connect(self._on_one)
         self.worker.finished.connect(self._on_refreshed)
@@ -4875,16 +5042,34 @@ class MainWindow(QMainWindow):
         if (_state_class(old) == "live" and _state_class(merged) != "live"
                 and res.get("state") in ("connected", "capture", "capture_unknown")
                 and not res.get("off")):
+            expired = False
             if key in self._retrying:
-                return          # 已经在重读，等它的结论，别让中间帧抢先上屏
-            self._retrying.add(key)
-            self._retry_pending[key] = merged
-            w = IdleProbeWorker([key], lambda: self._quitting)
-            w.one.connect(self._on_retry_one)
-            w.done.connect(lambda _woke, k=key: self._on_retry_done(k))
-            self._retry_workers[key] = w
-            w.start()
-            return
+                # 重读线程可能卡死在驱动调用里（HID/串口不返回），那种情况
+                # done 信号永远不来。不设上限的话，这台设备之后每一帧都会在
+                # 这里被丢掉，卡片冻住再也不更新。超过 20 秒就放弃这次重读，
+                # 让当前这一帧按普通的「这一轮没回话」上屏。
+                since = self._retry_since.get(key, 0.0)
+                if time.time() - since <= 20.0:
+                    return      # 已经在重读，等它的结论，别让中间帧抢先上屏
+                log_err("重读超时 %.0fs，解除占位: %s" % (time.time() - since, key))
+                self._retrying.discard(key)
+                self._retry_since.pop(key, None)
+                self._retry_pending.pop(key, None)
+                self._retire_worker(self._retry_workers.pop(key, None))
+                expired = True
+            if not expired:
+                self._retrying.add(key)
+                self._retry_since[key] = time.time()
+                self._retry_pending[key] = merged
+                w = IdleProbeWorker([key], lambda: self._quitting)
+                w.one.connect(self._on_retry_one)
+                w.done.connect(lambda _woke, k=key: self._on_retry_done(k))
+                # 正常情况下 key 已被 _retrying 拦住，不会重复建线程；这里再兜
+                # 一层，万一哪天逻辑改了，也不会把还在跑的旧线程引用直接覆盖掉。
+                self._retire_worker(self._retry_workers.get(key), drop_signals=False)
+                self._retry_workers[key] = w
+                w.start()
+                return
         self.results[key] = merged
         card = self.cards.get(key)
         if card is not None:
@@ -4905,7 +5090,11 @@ class MainWindow(QMainWindow):
     def _on_retry_done(self, key):
         """重读结束：真的没读到才如实显示「未响应」。"""
         self._retrying.discard(key)
-        self._retry_workers.pop(key, None)
+        self._retry_since.pop(key, None)
+        # 这个槽是被 done 信号叫起来的，而 done 是在 run() 的 finally 里发的 ——
+        # 此刻线程还没真正 return，直接 pop 掉最后一个引用会让 QThread 在「还在
+        # 运行」的状态下析构，Qt 随即 abort() 整个进程。交给回收站等它跑完。
+        self._retire_worker(self._retry_workers.pop(key, None), drop_signals=False)
         ok = key in self._retry_ok
         self._retry_ok.discard(key)
         pend = self._retry_pending.pop(key, None)
@@ -4960,31 +5149,49 @@ class MainWindow(QMainWindow):
         return res
 
     def _on_refreshed(self, out, err):
-        self._watchdog.stop()
-        for o in out:
-            self.results[o["key"]] = self._merge_result(o["key"], o["result"])
-        self._render()
-        self._from_cache = False
-        save_cache(self.results, self._last_ok)
-        self._check_low_battery()
-        ts = time.strftime("%H:%M:%S")
-        iv = self._interval_seconds()
-        auto = ("每 %d 秒" % iv) if 0 < iv < 60 else ("每 %d 分钟" % (iv // 60) if iv else "关")
-        base = (f"最后更新 {ts} · 在线 {self._online_count()}/{N_DEVICES} 台"
-                + f" · 自动刷新 {auto}")
-        if err:
-            base += f" · ⚠️ {err}"
-        self.status.setText(base)
-        self.status.setToolTip(base)
-        self._busy = False
-        # 这一轮里设备刚恢复（开机 / 唤醒）：稍后再补一次，拿稳定读数
-        self._note_state_change()
-        # 「动键鼠」触发的那次补刷有结果了：读回来了就恢复灵敏，仍没起色就退避
-        if self._input_kick_pending:
-            self._input_kick_pending = False
-            back = any(_state_class(v) == "live"
-                       for k, v in self.results.items() if self._last_ok.get(k))
-            self._input_kick_gap = 4.0 if back else min(self._input_kick_gap * 2, 120.0)
+        # 这个槽有两个入口：RefreshWorker.finished（正常收尾），以及
+        # _on_probe_done 里的一次「空收尾」（只想重算界面，不涉及刷新锁）。
+        # 只有前者有资格动 _busy 和看门狗 —— 快探线程迟到时如果把新一轮刷新
+        # 的锁清掉，就会出现两个 RefreshWorker 同时枚举、抢同一批 HID 句柄。
+        sender = self.sender()
+        mine = (sender is None) or (sender is self.worker)
+        if mine:
+            self._watchdog.stop()
+        # 收尾这一段里任何一步抛异常，_busy 就会永远停在 True —— 此后所有刷新
+        # 都被判定成「上一轮还没回来」而被丢掉，界面一直卡在「正在读取」，
+        # 只能等 20 秒看门狗。所以整段包起来，_busy 放 finally 里复位。
+        try:
+            for o in out:
+                self.results[o["key"]] = self._merge_result(o["key"], o["result"])
+            self._render()
+            self._from_cache = False
+            save_cache(self.results, self._last_ok)
+            self._check_low_battery()
+            ts = time.strftime("%H:%M:%S")
+            iv = self._interval_seconds()
+            auto = ("每 %d 秒" % iv) if 0 < iv < 60 else ("每 %d 分钟" % (iv // 60) if iv else "关")
+            base = (f"最后更新 {ts} · 在线 {self._online_count()}/{N_DEVICES} 台"
+                    + f" · 自动刷新 {auto}")
+            if err:
+                base += f" · ⚠️ {err}"
+            self.status.setText(base)
+            self.status.setToolTip(base)
+        except Exception as e:
+            log_err("刷新收尾异常: " + repr(e))
+        finally:
+            if mine:
+                self._busy = False
+        try:
+            # 这一轮里设备刚恢复（开机 / 唤醒）：稍后再补一次，拿稳定读数
+            self._note_state_change()
+            # 「动键鼠」触发的那次补刷有结果了：读回来了就恢复灵敏，仍没起色就退避
+            if self._input_kick_pending:
+                self._input_kick_pending = False
+                back = any(_state_class(v) == "live"
+                           for k, v in self.results.items() if self._last_ok.get(k))
+                self._input_kick_gap = 4.0 if back else min(self._input_kick_gap * 2, 120.0)
+        except Exception as e:
+            log_err("刷新后续处理异常: " + repr(e))
 
     def _on_tick(self):
         if self.auto_refresh:
@@ -5118,6 +5325,8 @@ class MainWindow(QMainWindow):
         self._probing = True
         self._probe_since = time.time()
         self._state_before = {k: _state_class(v) for k, v in self.results.items()}
+        # 同上：超时被强制解锁时旧线程可能还在读，不能直接覆盖引用
+        self._retire_worker(self.probe_worker)
         self.probe_worker = IdleProbeWorker(keys, lambda: self._quitting)
         self.probe_worker.one.connect(self._on_one)
         self.probe_worker.done.connect(self._on_probe_done)
@@ -5180,13 +5389,19 @@ class MainWindow(QMainWindow):
         # 顶部「捕获报文」按钮：一次抓取全部设备（含本机完整 HID 列表），
         # 用来核对 VID/PID、看清收发帧，是给新设备写协议的第一步。
         dlg = CaptureDialog(self, ALL_VIDS, KEYWORDS)
-        dlg.exec()
+        try:
+            dlg.exec()
+        finally:
+            dlg.deleteLater()
 
     def show_protocols(self):
         """顶部「协议一览」：把这 N 台设备各自的识别方式/接口/帧格式/电量字段列出来，
         并支持一键复制，方便贴到文档或发给别人。"""
         dlg = ProtocolDialog(self)
-        dlg.exec()
+        try:
+            dlg.exec()
+        finally:
+            dlg.deleteLater()
 
     def show_about(self):
         # 设备清单和台数都从 PROFILES 现场生成，不再写死
@@ -5505,12 +5720,20 @@ class AppDialog(QDialog):
             danger=False, width=430):
         """返回 True 表示点了确定。"""
         dlg = cls(parent, title, text, ok_text, cancel_text, danger, width)
-        return bool(dlg.exec())
+        try:
+            return bool(dlg.exec())
+        finally:
+            # 父对象是主窗口，不显式回收就会一直挂在它下面：每弹一次多留一整套
+            # 窗口树（标签、按钮、样式表）。用了一整天之后这个是会累积的。
+            dlg.deleteLater()
 
     @classmethod
     def tell(cls, parent, title, text, ok_text="知道了", width=430):
         dlg = cls(parent, title, text, ok_text, "", False, width)
-        return bool(dlg.exec())
+        try:
+            return bool(dlg.exec())
+        finally:
+            dlg.deleteLater()
 
 
 class ProtocolDialog(QDialog):
@@ -5967,11 +6190,25 @@ class ImportDialog(QDialog):
 
     def _stop_tester(self):
         w = getattr(self, "_tester", None)
-        if w is not None and w.isRunning():
-            w.requestInterruption()
-            if not w.wait(12000):
-                # 极慢设备仍未结束：断开父子关系，让它跑完自己退出，不随对话框析构
-                w.setParent(None)
+        if w is None:
+            return
+        self._tester = None
+        if not w.isRunning():
+            return
+        w.requestInterruption()
+        if w.wait(12000):
+            return
+        # 还卡在某一台慢设备上：绝对不能就地丢引用。这个对话框是 open_import()
+        # 里的局部变量，exec() 一返回就被回收，self._tester 随之消失 —— 线程在
+        # 「仍在运行」的状态下析构，Qt 会 abort 整个进程（0xc0000409），跟主窗口
+        # 里那个 QThread 的坑是同一类。交给主窗口的回收站保管，它每秒确认
+        # isFinished() 之后才真正放引用。顺带断开信号，免得线程迟到 emit 打到
+        # 已经销毁的对话框上。
+        host = self.parent()
+        if host is not None and hasattr(host, "_retire_worker"):
+            host._retire_worker(w)
+        else:
+            _ORPHAN_WORKERS.append(w)
 
     def export_template(self):
         """导出协议文件：一台设备一个 .json，文件名就是设备名。"""
@@ -6054,6 +6291,7 @@ class CaptureDialog(QDialog):
         self.resize(680, 520)
         self.vids = set(vids) if vids else None
         self.keywords = keywords
+        self._cap_running = False      # 防重入：连点两次会开两个线程抢同一批句柄
         self._result.connect(self._set_text)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -6104,18 +6342,31 @@ class CaptureDialog(QDialog):
         self.text.setPlainText(t)
 
     def run(self, deep=False):
+        if self._cap_running:
+            return          # 上一次还在跑：再开一个线程会抢同一批 HID 句柄
+        self._cap_running = True
         self._result.emit("探测中…（深度探测约需 20 秒，请稍候）" if deep else "捕获中…")
         threading.Thread(target=self._cap, args=(deep,), daemon=True).start()
+
+    def _emit_safe(self, text):
+        """对话框随时可能被关掉：往已销毁的 QObject 上 emit 会抛 RuntimeError，
+        而这个异常在后台线程里没人接，只会污染日志。"""
+        try:
+            self._result.emit(text)
+        except Exception:
+            pass
 
     def _cap(self, deep=False):
         try:
             if not _WIN_HID:
-                self._result.emit("当前平台不支持 HID 直连（需在 Windows 上运行）。")
+                self._emit_safe("当前平台不支持 HID 直连（需在 Windows 上运行）。")
                 return
             result = capture_raw(self.vids, self.keywords, deep=deep)
-            self._result.emit(result)
+            self._emit_safe(result)
         except Exception as e:
-            self._result.emit("捕获出错：" + str(e))
+            self._emit_safe("捕获出错：" + str(e))
+        finally:
+            self._cap_running = False
 
 
 def _global_excepthook(etype, exc, tb):
