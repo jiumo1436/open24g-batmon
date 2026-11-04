@@ -12,7 +12,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-或直接双击 `设备电量监控.exe`（`configs/` 放在 exe 同目录）。
+或直接双击 `设备电量监控.exe`（`configs/` 放在 exe 同目录，且 `_internal/` 与 exe 同级）。
 
 ---
 

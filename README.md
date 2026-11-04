@@ -27,7 +27,7 @@ HID（USB 报文）与串口（虚拟 COM）两条通道共用同一套通用解
 | **一条引擎跑两类接收器** | HID 与串口共用 `read` / `reply` 语法，换通道不用重写配置 |
 | **换算能力够用** | 单字节 / 多字节端序 / 掩码抠位 / 线性系数 / 查表插值 / 安全公式 / 电压→百分比 / 关机假帧 |
 | **异常不崩** | 配置写错给中文提示并跳过，设备掉线自动重试，后台线程读取，单台卡死不拖累其它 |
-| **原生小工具** | 单文件 Qt 程序、无控制台、托盘三环图标、开机自启、低电量弹窗、电量配色可调 |
+| **原生小工具** | 单个 Python 文件的 Qt 程序、无控制台、托盘三环图标、开机自启、低电量弹窗、电量配色可调 |
 
 ## 界面截图
 
@@ -61,9 +61,15 @@ HID（USB 报文）与串口（虚拟 COM）两条通道共用同一套通用解
 👉 **下载页：<https://github.com/jiumo1436/open24g-batmon/releases/latest>**
 
 在 Releases 页面下载 `open24g-batmon-<版本>-win64.zip`，解压后双击 `设备电量监控.exe`。
-`configs/` 必须与 exe 放在同一目录（压缩包内已带好）。
+**exe 必须和同目录的 `_internal\` 文件夹待在一起**（压缩包内已带好），`configs/` 也放在同一层。
 
-> **为什么仓库里看不到 `dist/` 和 exe？** 可执行文件属于「构建产物」，体积大（单文件 46 MB）、
+> **为什么是「目录版」而不是单个 exe？** 单文件打包（onefile）每次启动都要把约 112 MB 的
+> Python + Qt 运行时解包到 `%TEMP%\_MEIxxxxxx`，正常退出才会自己删；一旦崩溃或被任务管理器
+> 强杀，这个目录就永久残留——实测一周能堆出 8~9 GB 垃圾，冷启动也要多等 3~5 秒。
+> 目录版（onedir）只在解压发布包时落盘一次，启动直接加载，既快又不留垃圾。
+> 代价就是上面那句：exe 不能单独拷走。见 [`docs/quick-start.txt`](docs/quick-start.txt)。
+
+> **为什么仓库里看不到 `dist/` 和 exe？** 可执行文件属于「构建产物」，体积大（目录版约 116 MB）、
 > 二进制无法代码审查，所以不入版本库，统一通过 Releases 分发；仓库里只放源码和配置。
 > 想自己从源码打包见文末「打包」一节。
 
@@ -167,6 +173,7 @@ open24g-batmon/
 | `cache.json` | 上次读数缓存（用于启动瞬间先显示灰值） |
 | `协议库/` | 导入 / 导出协议时自动留存的副本 |
 | `error.log` / `error.log.1` | 程序日志（超过 1MB 自动滚存） |
+| `crash.log` / `crash.log.1` | 进程级崩溃留痕（faulthandler 抓各线程栈，同样 1MB 滚存） |
 
 ## 异常处理约定
 
@@ -178,6 +185,7 @@ open24g-batmon/
 | 批量导入几十份配置 | 递归读取、逐份独立校验，单份出错不影响其它 |
 | 单台设备读取慢 | 后台线程逐台读，线程数封顶 8，一台卡住不拖累其它 |
 | 未捕获异常 | 兜底钩子写日志 + 错误框，进程不退出 |
+| 进程级崩溃（0xc0000409 之类 fail-fast） | 走不到 Python 异常，由 `faulthandler` 把崩溃瞬间各线程的栈写进 `crash.log` |
 | `devices.json` 被改坏 | 跳过坏条目，其余设备照常加载；不覆盖你的原文件 |
 
 逐条复现步骤见 [`docs/verify.md`](docs/verify.md)。
@@ -189,9 +197,13 @@ pip install pyinstaller
 python -m PyInstaller --clean --noconfirm open24g-batmon.spec
 ```
 
-产物为 `dist/设备电量监控.exe`（单文件、无控制台、图标内嵌）。`configs/` **不打包进 exe**，
+产物为 `dist/设备电量监控/` 目录：里面是 `设备电量监控.exe`（2.4 MB，无控制台、图标内嵌）
+加 `_internal/`（Python + Qt 运行时，约 112 MB），两者必须一起分发。`configs/` **不打包**，
 运行时从 exe 同目录读取，方便用户自行增删配置。发布步骤与说明模板见
 [`docs/publish-guide.md`](docs/publish-guide.md)、[`docs/release-notes-template.md`](docs/release-notes-template.md)。
+
+> 打包方式若改回单文件（在 spec 里把 `COLLECT` 去掉、`exclude_binaries=False`），
+> 请同时接受 `%TEMP%` 里会留下 `_MEI*` 残留目录这个副作用，原因见上文「为什么是目录版」。
 
 ## 社区共建
 

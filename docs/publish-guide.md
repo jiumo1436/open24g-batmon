@@ -123,13 +123,14 @@ pip install -r requirements.txt pyinstaller
 python -m PyInstaller --clean --noconfirm open24g-batmon.spec
 ```
 
-产物：`dist/设备电量监控.exe`（单文件、无控制台、图标内嵌）。
+产物：`dist/设备电量监控/` 目录（`设备电量监控.exe` + `_internal/`，合计约 116 MB）。
+**整个目录都要分发**，exe 离开 `_internal/` 无法启动。
 
 ### 4.2 组装发布包
 
 ```bash
 mkdir -p release/open24g-batmon-1.0.0-win64
-cp dist/设备电量监控.exe release/open24g-batmon-1.0.0-win64/
+cp -r dist/设备电量监控/. release/open24g-batmon-1.0.0-win64/
 cp -r configs release/open24g-batmon-1.0.0-win64/configs
 cp docs/quick-start.txt release/open24g-batmon-1.0.0-win64/
 rm -f release/open24g-batmon-1.0.0-win64/configs/template.json \
