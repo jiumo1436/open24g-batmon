@@ -208,6 +208,14 @@ def pct_color(pct):
     return COLOR_GREEN
 
 
+def clock_hhmm(ts):
+    """把时间戳格式化成 10:32，用来标注「上次读数」是哪一刻读到的。"""
+    try:
+        return time.strftime("%H:%M", time.localtime(float(ts)))
+    except Exception:
+        return ""
+
+
 # ------------------------- 单实例 -------------------------
 # 双击两次 / 开机自启动 + 手动再打开，都不能出现第二个托盘图标。
 SINGLE_KEY = "dianliang-monitor-open24g"
@@ -1620,9 +1628,10 @@ def probe_spec(key, devs=None):
         r = read_by_spec(spec, d)
         if r:
             # 电量读到 0：对声明了 zero_is_off 的设备，0 是「关机时的假帧」，
-            # 不是真实电量 —— 一律按「未响应」处理，绝不显示成 0%。
+            # 不是真实电量 —— 标成 off（已关机），界面显示「已关机 + 上次读数」，
+            # 绝不显示成 0%，也不拿它去触发低电量提醒。
             if r[0] <= 0 and spec["read"]["reply"]["battery"].get("zero_is_off"):
-                return {"state": "connected", "note": "implnoread"}
+                return {"state": "connected", "note": "implnoread", "off": True}
             return {"state": "connected", "battery": r[0], "charging": r[1],
                     "source": "spec"}
     return {"state": "connected", "note": "specnoread"}
@@ -2224,6 +2233,9 @@ def probe_device(key, devs=None):
         implnoread   接口找到了，但设备没回包（多半是休眠 / 没开机）
         specnoread   导入的协议没读到（帧格式可能不匹配这个固件）
         noread       这台设备没有可用的读取器（只在协议一览里展示）
+
+    另外可能带一个 off=True：配置里声明了 zero_is_off 且这轮读到 0 —— 说明设备
+    关机了，正在回「假帧」。界面按「已关机 + 上次读数」显示，不当成 0%。
 
     内置设备与导入的设备在这里合流：前者按 BUILTIN_DEVICES 的 impl 找读取器，
     后者按 JSON 协议执行，界面完全不区分来源。
@@ -3580,8 +3592,20 @@ class DeviceCard(QFrame):
         detail = res.get("detail")          # 读取器可以附一句"怎么读到的"
         approx = bool(res.get("approx"))    # 只报档位、只能给估算值的设备
         stale = bool(res.get("stale"))      # 这轮没回话，显示的是上次读数
+        stale_at = clock_hhmm(res.get("stale_at"))   # 上次读数是什么时候读到的
+        last = f"（{stale_at} 读到）" if stale_at else ""
 
-        if state == "connected" and battery is not None and not stale:
+        if state == "connected" and res.get("off"):
+            # 配置里声明了 zero_is_off：这轮回的 0 是「关机假帧」，不是真实电量。
+            # 显示「已关机」+ 上次读数，绝不写成 0%。
+            badge = ("已关机", "#F2F2F2", "#1A1A1A", "#8A8A8A")
+            if battery is not None:
+                sub = f"设备已关机 · 显示上次读数 {battery}%{last}"
+                pct_text, pct = f"{battery}%", battery
+            else:
+                sub = "设备已关机（开机后自动恢复读取）"
+                pct_text, pct = "—", None
+        elif state == "connected" and battery is not None and not stale:
             badge = ("已连接", "#F2F2F2", "#1A1A1A", "#0E700E")
             if detail:
                 sub = "已连接 · " + detail + (" · 充电中" if charging else "")
@@ -3592,7 +3616,7 @@ class DeviceCard(QFrame):
         elif state == "connected" and battery is not None:
             # 上一次读到的值：设备这轮没回话（多半休眠 / 关机了），不能写成「已连接」
             badge = ("未响应", "#F2F2F2", "#1A1A1A", "#C77A00")
-            sub = f"设备这轮没回话（可能休眠或关机）· 显示上次读数 {battery}%"
+            sub = f"设备这轮没回话（可能休眠或关机）· 显示上次读数 {battery}%{last}"
             pct_text, pct = f"{battery}%", battery
         elif state == "connected" and note == "implnoread":
             badge = ("未响应", "#F2F2F2", "#1A1A1A", "#8A8A8A")
@@ -3624,6 +3648,11 @@ class DeviceCard(QFrame):
             badge = ("不可用", "#F2F2F2", "#1A1A1A", "#8A8A8A")
             sub = "仅 Windows 支持"
             pct_text, pct = "—", None
+        elif battery is not None and stale:
+            # 接收器拔了 / 设备彻底不上线：以后不会再刷新出电量，保留上次读数并标清时间
+            badge = ("未连接", "#F2F2F2", "#1A1A1A", "#8A8A8A")
+            sub = f"接收器未插入 · 显示上次读数 {battery}%{last}"
+            pct_text, pct = f"{battery}%", battery
         else:
             badge = ("未连接", "#F2F2F2", "#1A1A1A", "#8A8A8A")
             sub = "接收器未插入"
@@ -4159,6 +4188,7 @@ class MainWindow(QMainWindow):
                     # 老缓存没有时间戳时，保鲜期从本次启动重新起算，避免数字被抹成「—」。
                     v["stale"] = True
                     self._last_ok[k] = float(ok_at) if ok_at else time.time()
+                    v["stale_at"] = self._last_ok[k]   # 卡片上标「（10:32 读到）」
                 self.results[k] = v
         # 沿用上次选的刷新间隔（不在档位表里就回默认值）
         try:
@@ -4650,19 +4680,27 @@ class MainWindow(QMainWindow):
             card.apply(self.results[key])
 
     def _merge_result(self, key, res):
-        """新的结果没带电量（还没读到 / 设备这轮没回话）时，保留上次的真实读数，
-        标成 stale —— 但只保留 STALE_KEEP 秒：
-          · 短时间掉一下（鼠标打盹）不会把数字抹成「—」再慢慢回来；
-          · 关机半小时的耳机也不会一直挂着那个旧数字冒充「现在还有电」。
-        超过时限就直接用新结果（卡片显示「未响应」+「—」）。
+        """新的结果没带电量（还没读到 / 设备这轮没回话）时，保留上次的真实读数。
+
+        分两种情况：
+          · 只是「这一轮没回话」（休眠/打盹）：标 stale，只保留 STALE_KEEP 秒 ——
+            短时间掉一下不会把数字抹成「—」，但也不会挂一整天。
+          · 明确的「关机」或「接收器拔了」：这两种状态不会自己再冒出新读数，
+            上次电量一直留着，界面写成「已关机 / 未连接 + 显示上次读数（几点读到的）」，
+            并带上 stale_at 让用户一眼知道这个数字有多旧。
+            正常情况下 stale 结果不参与低电量提醒，所以不会拿旧数字吓人。
         """
         old = self.results.get(key) or {}
         present = ("connected", "capture", "capture_unknown")
         if res.get("battery") is not None:
             self._last_ok[key] = time.time()      # 记下「这次真读到了」的时间
-        if (res.get("battery") is None and old.get("battery") is not None
-                and res.get("state") in present and old.get("state") in present
-                and time.time() - self._last_ok.get(key, 0.0) < self.STALE_KEEP):
+        keep_a_while = (res.get("battery") is None and old.get("battery") is not None
+                        and res.get("state") in present and old.get("state") in present
+                        and time.time() - self._last_ok.get(key, 0.0) < self.STALE_KEEP)
+        # 关机（off）/ 接收器不在：不会再刷新出电量了，把上次读数一直挂着
+        keep_for_good = (res.get("battery") is None and old.get("battery") is not None
+                         and (bool(res.get("off")) or res.get("state") == "disconnected"))
+        if keep_a_while or keep_for_good:
             merged = dict(res)
             merged["battery"] = old["battery"]
             merged["charging"] = old.get("charging", False)
@@ -4670,6 +4708,8 @@ class MainWindow(QMainWindow):
             if old.get("level"):
                 merged["level"] = old["level"]
             merged["stale"] = True
+            # 这个旧数字是什么时候读到的：界面据此写「（10:32 读到）」
+            merged["stale_at"] = self._last_ok.get(key) or old.get("stale_at")
             return merged
         return res
 
