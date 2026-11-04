@@ -412,6 +412,54 @@ def log_err(msg):
         pass
 
 
+_CRASH_LOG = None
+
+
+def _install_crash_handlers():
+    """捕获「进程级崩溃」留痕。
+
+    Python 异常（哪怕在线程里）会走 log_err，但 0xc0000409 / 访问冲突这类
+    fail-fast 崩溃根本不给解释器抛异常的机会，进程直接没了，error.log 里
+    一个字都不会留。faulthandler 挂在进程上，崩溃瞬间能把各线程的 C/Python
+    栈写进 crash.log，是排查这类「无声退出」唯一有效的线索。
+
+    返回 True 表示已启用；任何一步失败都不影响主流程。
+    """
+    global _CRASH_LOG
+    try:
+        import faulthandler
+        path = os.path.join(APP_DIR, "crash.log")
+        try:
+            if os.path.getsize(path) > LOG_MAX_BYTES:
+                # 与 error.log 同样只留一代，磁盘占用封顶 2MB
+                os.replace(path, path + ".1")
+        except OSError:
+            pass
+        _CRASH_LOG = open(path, "a", encoding="utf-8", errors="replace")
+        faulthandler.enable(file=_CRASH_LOG, all_threads=True)
+        _CRASH_LOG.write(
+            "\n===== 启动 %s  pid=%s =====\n"
+            % (time.strftime("%Y-%m-%d %H:%M:%S"), os.getpid())
+        )
+        _CRASH_LOG.flush()
+        return True
+    except Exception:
+        return False
+
+
+def _thread_excepthook(args):
+    """线程里没被接住的异常：别静默，记一行（Python 3.8+ 才有这个钩子）。"""
+    try:
+        log_err(
+            "线程未捕获异常 %s: %r\n%s"
+            % (getattr(args.thread, "name", "?"), args.exc_value,
+               "".join(__import__("traceback").format_exception(
+                   args.exc_type, args.exc_value, args.exc_traceback)))
+        )
+    except Exception:
+        pass
+
+
 def load_cache():
     """上次的读数：让软件一打开就有数字，而不是先空一片再慢慢刷。"""
     try:
@@ -5627,6 +5675,12 @@ def _global_excepthook(etype, exc, tb):
 
 
 def main():
+    # 崩溃留痕先挂上：后面任何一步崩了都能在 crash.log 里看到栈（不占编号，免得打乱下面的步骤号）
+    _install_crash_handlers()
+    try:
+        threading.excepthook = _thread_excepthook
+    except Exception:
+        pass
     # 0) 本机偏好先就位：配色、托盘、提醒都要用它；再让系统启动项跟它对齐
     try:
         load_user_settings()
