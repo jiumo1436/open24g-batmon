@@ -49,7 +49,7 @@ grep -nE "read_fixed17|read_session20|read_private64" app.py || echo "无内置�
 | `battery.byte` 写字符串 | reply.battery.byte 必须是整数 |
 | `version` 写 2 | 配置版本 2 不受支持 |
 | JSON 少一个括号 | JSON 语法错误（第 X 行第 Y 列） |
-| 导入 `configs/template.json` | 这是配置模板，不是可导入的设备 |
+| 导入 `configs/templates/template.json` | 这是配置模板，不是可导入的设备 |
 
 命令行批量校验（不开界面）：
 

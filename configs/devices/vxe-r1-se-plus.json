@@ -1,0 +1,68 @@
+{
+  "_说明": "实机验证配置：VXE R1 SE+ 无线鼠标，2.4G 接收器。VID/PID 与收发帧均来自本机实测，非虚构示例。",
+  "format": "dianliang-device-pack",
+  "version": 1,
+  "note": "查询帧 17 字节，第 16 位为校验：sum_neg（seed 0x4D）。设备回包锚点 0x04，电量位于锚点后第 5 字节，第 6 字节为充电标志。读数范围 2~100，读到 0x00 视为无有效读数。",
+  "devices": [
+    {
+      "key": "vxe",
+      "name": "VXE R1 SE+ 鼠标",
+      "type": "mouse",
+      "wire": "2.4G",
+      "protocol": "私有协议 V1",
+
+      "transport": {
+        "type": "hid"
+      },
+
+      "match": {
+        "_说明": "接收器同时暴露键盘/鼠标/厂商私有多个接口，用 usage_page 0xFF02 加报文长度 17 锁定私有接口。",
+        "vid": "0x3554",
+        "pid": "0xF58E",
+        "usage_page": "0xFF02",
+        "min_in": 17,
+        "min_out": 17
+      },
+
+      "read": {
+        "query": [
+          "08 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        ],
+        "checksum": {
+          "mode": "sum_neg",
+          "from": 1,
+          "to": 16,
+          "at": 16,
+          "seed": "0x4D"
+        },
+        "pad_to": 17,
+        "attempts": 2,
+        "listen_ms": 800,
+
+        "reply": {
+          "contains": [
+            "04"
+          ],
+          "checksum": {
+            "mode": "sum_neg",
+            "from": 0,
+            "to": 15,
+            "at": 15,
+            "seed": "0x4D"
+          },
+          "battery": {
+            "byte": 5
+          },
+          "charging": {
+            "byte": 6,
+            "mask": "0xFF"
+          },
+          "range": [
+            2,
+            100
+          ]
+        }
+      }
+    }
+  ]
+}

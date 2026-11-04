@@ -150,12 +150,17 @@ cp -r dist/设备电量监控/. "release/v${VER}/${BASE}/"
 cp -r configs "release/v${VER}/${BASE}/configs"
 cp docs/quick-start.txt "release/v${VER}/${BASE}/"
 cp LICENSE "release/v${VER}/${BASE}/"
-rm -f "release/v${VER}/${BASE}/configs/template.json" \
-      "release/v${VER}/${BASE}/configs/serial-template.json"
 cd "release/v${VER}" && 7z a ${BASE}.zip ${BASE}
 ```
 
-发布包内只放**能直接导入的配置**，模板文件留在仓库里即可。
+**发布包要带完整 `configs/`（`devices/` + `templates/`）**，不要只带实机配置：
+
+- `devices/` 是软件开箱可用的前提 —— 不带配置，用户解压后打开就是「暂无设备」，
+  得先去 GitHub 翻仓库才能用，这是新用户流失最大的一步；
+- `templates/` 只有十几 KB，却是用户自己加设备时唯一的抄写起点，删掉反而抬高门槛；
+- `template.json` 自带 `"template": true`，导入界面会主动拒绝，**留着不会被误导入**，
+  所以不再需要 rm 掉模板（旧版本有这一步，现已取消）。
+
 `LICENSE` 要随包分发 —— MIT 要求分发时附上许可证副本。
 
 > `release/` 已写进 `.gitignore`，整个目录不进版本库，只作为本地留档与上传源。

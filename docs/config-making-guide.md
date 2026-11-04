@@ -5,7 +5,7 @@
 
 - 只想查字段含义？看 [字段说明](config-schema.md)。
 - 已经写好配置，想提交？看 [贡献指南](contribute-guide.md)。
-- 不想看原理，直接抄？从 [`configs/template.json`](../configs/template.json) 开始改，遇到问题回本文查。
+- 不想看原理，直接抄？从 [`configs/templates/template.json`](../configs/templates/template.json) 开始改，遇到问题回本文查。
 
 > 全程只需要：一台 Windows 电脑、你要适配的那台设备、它的 2.4G 接收器、以及**厂商自己的驱动软件**。
 > 厂商软件在这里的作用是「帮我们触发查询帧」，抓完就可以关掉。
@@ -174,7 +174,7 @@ print("sum_neg[1:17] seed=0x00 =", hex(sum_neg(frame, 1, 17, 0x00)))
 复制模板，改成你的文件名（小写英文 + 连字符）：
 
 ```bash
-cp configs/template.json configs/my-brand-model.json
+cp configs/templates/template.json configs/my-brand-model.json
 ```
 
 ### 5.1 第一步：只填「能发出去」

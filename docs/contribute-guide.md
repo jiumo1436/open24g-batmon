@@ -13,7 +13,7 @@
 
 | # | 材料 | 要求 |
 | --- | --- | --- |
-| 1 | **配置文件** | 基于 [`configs/template.json`](../configs/template.json) 编写，通过 `tools/validate-config.py` 校验，文件名小写英文 + 连字符 |
+| 1 | **配置文件** | 基于 [`configs/templates/template.json`](../configs/templates/template.json) 编写，通过 `tools/validate-config.py` 校验，文件名小写英文 + 连字符 |
 | 2 | **原始抓包日志** | 对应这台设备的 `.pcap` / `.pcapng`（或 Bus Hound 导出的日志）。必须包含「查询帧 + 回包」的完整往返，能看到电量字节。**在 PR 里作为附件上传，不要提交进仓库** |
 | 3 | **硬件实测证据** | 至少一张截图或一段录屏：软件卡片读出电量 **且** 与厂商软件显示的电量一致。文件里能看到设备名/型号更佳 |
 
@@ -78,7 +78,7 @@ git checkout -b config/add-brand-model
 ### 3. 添加配置
 
 ```bash
-cp configs/template.json configs/brand-model.json
+cp configs/templates/template.json configs/brand-model.json
 # 编辑 configs/brand-model.json
 ```
 
@@ -188,7 +188,7 @@ git push origin config/add-brand-model
 
 ```
 1. 抓包（Wireshark + USBPcap，过滤 usb.idVendor == 0xXXXX）
-2. 复制 configs/template.json → configs/brand-model.json
+2. 复制 configs/templates/template.json → configs/brand-model.json
 3. 填 match / read.query / read.reply.battery
 4. python tools/validate-config.py configs/brand-model.json
 5. 软件里「测试读取选中」通过，电量与厂商软件一致

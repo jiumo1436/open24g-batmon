@@ -20,7 +20,7 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `open24g-batmon-{{版本号}}-win64.zip` | 免安装，解压即用（含 exe + configs） |
+| `open24g-batmon-{{版本号}}-win64.zip` | 免安装，解压即用（含 exe + `configs/` 全部设备配置与模板） |
 | `open24g-batmon-{{版本号}}-win64.zip.sha256` | 校验和 |
 
 解压后目录结构：
@@ -28,10 +28,13 @@
 ```
 open24g-batmon-{{版本号}}-win64/
 ├── 设备电量监控.exe
-└── configs/            # 设备协议配置，可自行增删
+└── configs/
+    ├── devices/        # 实机配置，导入即用
+    └── templates/      # 模板与语法示例，自己加设备时照着改
 ```
 
-首次启动是空列表，点「＋ 导入设备 → 浏览 configs」导入需要的设备即可。
+本版内置 {{N}} 台设备配置。点「＋ 导入设备 → 浏览 configs」勾选即可；
+如果你的设备不在这 {{N}} 款里，用 `configs/templates/template.json` 照抄着写一份。
 
 ---
 

@@ -3,7 +3,7 @@
 本文档是 `configs/*.json` / `*.yaml` 的完整字段参考。程序里**没有任何设备协议硬编码**，
 新增设备只需要写一份配置文件，不需要改源码。
 
-- 复制 `configs/template.json` 开始写，改完用「＋ 导入设备 → 测试读取选中」验证。
+- 复制 `configs/templates/template.json` 开始写，改完用「＋ 导入设备 → 测试读取选中」验证。
 - 一个文件可以只放一台设备，也可以放多台（`devices` 数组）。
 - 文件格式：JSON（推荐）或 YAML（需要 `pip install pyyaml`）。
 - 以 `_` 开头的键是注释，程序会忽略；`template: true` 的文件会被拒绝导入（防止误导入模板）。

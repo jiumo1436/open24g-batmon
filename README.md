@@ -90,10 +90,16 @@ python app.py
 3. 勾选后点「测试读取选中」，能读到电量再点「导入选中」；
 4. 导入结果记进 `devices.json`，下次启动自动加载。
 
-仓库自带三份**纯虚构的示例配置**（[`example-mouse.json`](configs/example-mouse.json)、
-[`example-keyboard.json`](configs/example-keyboard.json)、
-[`example-headphone.json`](configs/example-headphone.json)），仅用于演示语法，
-换了真实设备不会匹配到任何东西 —— 请按 [配置制作教程](docs/config-making-guide.md) 抓包后自己写。
+仓库自带两类配置：
+
+- **三份实机种子配置**（鼠标 / 键盘 / 耳机各一台），可直接导入使用：
+  [`vxe-r1-se-plus.json`](configs/devices/vxe-r1-se-plus.json)、[`aula-f87.json`](configs/devices/aula-f87.json)、
+  [`xiberia-t7.json`](configs/devices/xiberia-t7.json)。它们分别演示单帧查询、握手 + 查询、大报文输出通道
+  三种最常见形态，是你写新配置时最好的参照。**如果你的设备不是这三款，导入后不会匹配到接口**，
+  按 [配置制作教程](docs/config-making-guide.md) 抓包后自己写即可。
+- **三份纯虚构的语法示例**（[`example-mouse.json`](configs/templates/example-mouse.json)、
+  [`example-keyboard.json`](configs/templates/example-keyboard.json)、
+  [`example-headphone.json`](configs/templates/example-headphone.json)），仅用于演示字段写法。
 
 ## 配置长什么样
 
@@ -141,11 +147,16 @@ open24g-batmon/
 ├── icon.ico                   # 软件图标
 ├── configs/                   # 设备协议配置库（社区共建的主战场）
 │   ├── README.md              # 目录说明与命名规范
-│   ├── template.json          # HID 协议模板（template: true，导入时被拒绝）
-│   ├── serial-template.json   # 串口协议模板
-│   ├── example-mouse.json     # 语法示例（虚构值）
-│   ├── example-keyboard.json  # 语法示例（虚构值）
-│   └── example-headphone.json # 语法示例（虚构值）
+│   ├── devices/               # 实机配置（真实硬件验证过，导入即用）
+│   │   ├── vxe-r1-se-plus.json  # VXE R1 SE+ 鼠标
+│   │   ├── aula-f87.json        # 狼蛛 F87 键盘
+│   │   └── xiberia-t7.json      # 西伯利亚 T7 耳机
+│   └── templates/             # 模板与语法示例（供照着写，不对应可用设备）
+│       ├── template.json      # HID 协议模板（template: true，导入时被拒绝）
+│       ├── serial-template.json   # 串口协议模板
+│       ├── example-mouse.json     # 语法示例（虚构值）
+│       ├── example-keyboard.json  # 语法示例（虚构值）
+│       └── example-headphone.json # 语法示例（虚构值）
 ├── docs/
 │   ├── config-schema.md       # 全部字段说明（写配置时对照查）
 │   ├── config-making-guide.md # 抓包 → 分析 → 写配置 → 验证 的完整教程
@@ -208,7 +219,7 @@ python -m PyInstaller --clean --noconfirm open24g-batmon.spec
 
 ## 社区共建
 
-1. 照 [`configs/template.json`](configs/template.json) 或 [`configs/serial-template.json`](configs/serial-template.json) 复制一份；
+1. 照 [`configs/templates/template.json`](configs/templates/template.json) 或 [`configs/templates/serial-template.json`](configs/templates/serial-template.json) 复制一份；
 2. 按 [配置制作教程](docs/config-making-guide.md) 抓包、定位字段、填写；
 3. 本地自检：
 

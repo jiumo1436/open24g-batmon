@@ -53,7 +53,7 @@ done
 ls configs/
 
 # ② 示例的 VID 必须统一为明显的虚构值（本仓库用 0x1234）
-grep -n '"vid"' configs/example-*.json
+grep -n '"vid"' configs/templates/example-*.json
 
 # ③ 不允许出现真实品牌名
 grep -niE "logitech|razer|vxe|atk|aula|xiberia|狼蛛|西伯利亚|罗技|雷蛇" configs/*.json \
@@ -113,12 +113,12 @@ git ls-files | grep -E "user_settings|devices\.json|cache\.json|error\.log|\.pca
 
 ```bash
 find . -maxdepth 2 -not -path "./.git*" -not -path "./dist*" -not -path "./build*" | sort
-test -f configs/template.json && echo "模板存在"
+test -f configs/templates/template.json && echo "模板存在"
 test -d assets && test -d docs && test -d configs && echo "三目录齐全"
 ```
 
-**判定**：与 [README 目录结构](../README.md#目录结构) 一致；`configs/template.json` 与
-`configs/serial-template.json` 均存在。
+**判定**：与 [README 目录结构](../README.md#目录结构) 一致；`configs/templates/template.json` 与
+`configs/templates/serial-template.json` 均存在。
 
 ---
 

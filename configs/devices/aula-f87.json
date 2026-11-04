@@ -1,0 +1,66 @@
+{
+  "_说明": "实机验证配置：狼蛛（AULA）F87 无线机械键盘，2.4G 接收器。VID/PID 与收发帧均来自本机实测，非虚构示例。",
+  "format": "dianliang-device-pack",
+  "version": 1,
+  "note": "读取流程较长：先被动监听 200ms（设备可能主动推电量），再发握手帧 13 05 01，等 50ms，然后发查询帧 13 4A 01；两帧均为 20 字节、第 19 位求和校验（sum_tail）。推荐重试 1 次即可，重试过多会让键盘在休眠边界反复唤醒。回包锚点 13 4A 或 0A，电量在第 5 字节，第 6 字节的 0x10 位表示充电中。",
+  "devices": [
+    {
+      "key": "aula",
+      "name": "狼蛛 F87 键盘",
+      "type": "keyboard",
+      "wire": "2.4G",
+      "protocol": "私有协议 V1",
+
+      "transport": {
+        "type": "hid"
+      },
+
+      "match": {
+        "_说明": "同为 Compx 方案接收器（VID 0x3554），但键盘接口报文长度是 20 字节，与同方案的鼠标靠长度区分。",
+        "vid": "0x3554",
+        "pid": "0xFA09",
+        "usage_page": "0xFF02",
+        "min_in": 20,
+        "min_out": 20
+      },
+
+      "read": {
+        "passive_ms": 200,
+        "pre": [
+          "13 05 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        ],
+        "pre_delay_ms": 50,
+        "query": [
+          "13 4A 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        ],
+        "checksum": {
+          "mode": "sum_tail",
+          "from": 0,
+          "to": 19,
+          "at": 19
+        },
+        "pad_to": 20,
+        "attempts": 1,
+        "listen_ms": 600,
+
+        "reply": {
+          "contains": [
+            "13 4A",
+            "0A"
+          ],
+          "battery": {
+            "byte": 5
+          },
+          "charging": {
+            "byte": 6,
+            "mask": "0x10"
+          },
+          "range": [
+            2,
+            100
+          ]
+        }
+      }
+    }
+  ]
+}

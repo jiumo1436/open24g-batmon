@@ -5,15 +5,42 @@
 
 源码里没有任何设备协议参数，所以：**这里有多少份经过验证的配置，项目就支持多少台设备。**
 
-## 目录内容
+## 目录结构
+
+```
+configs/
+├── devices/     # 实机配置：真实硬件上验证过，导入即用
+└── templates/   # 模板与语法示例：供照抄着写，本身不对应可用设备
+```
+
+新增真实设备请放 `devices/`，写配置时参考 `templates/`。程序会递归扫描整个 `configs/`，
+**只看文件名、不看层级**，所以放在哪一层都能被「浏览 configs」找到。
+
+## devices —— 实机配置（种子设备）
+
+下面三份是**真实硬件上验证过**的配置，可直接导入使用，也是「一份合格配置该长什么样」的参照：
+
+| 文件 | 设备 | 协议特征 | 值得一看的地方 |
+| --- | --- | --- | --- |
+| `devices/vxe-r1-se-plus.json` | VXE R1 SE+ 鼠标 | 17 字节，取反校验 seed `0x4D` | `reply.checksum` 与发送帧用同一套种子；`range` 下限取 2 而非 0 |
+| `devices/aula-f87.json` | 狼蛛 F87 键盘 | 20 字节，先握手再查询 | `passive_ms` 先听设备主动上报；`attempts` 特意设为 1，避免频繁唤醒 |
+| `devices/xiberia-t7.json` | 西伯利亚 T7 耳机 | 64 字节，仅输出通道 | `min_in: 0` 表示输入无固定长度；`zero_is_off: true` 处理关机假帧 |
+
+三台设备覆盖了目前最常见的三种形态：**单帧查询**、**握手 + 查询**、**大报文输出通道**。
+写新配置时可以先对照最接近的那一份改。
+
+> VID / PID、Usage Page、报文长度都是产品级公开标识，同型号所有设备一致；这些配置里
+> 不含 MAC 地址、序列号、抓包日志或任何本机路径。
+
+## templates —— 模板与语法示例
 
 | 文件 | 用途 | 会被「浏览 configs」列出吗 |
 | --- | --- | --- |
-| `template.json` | HID 协议模板，逐字段带中文注释 | 否（文件名含 `template`，自动跳过） |
-| `serial-template.json` | 串口（虚拟 COM）协议模板 | 否（同上） |
-| `example-mouse.json` | 语法示例：单字节电量 + 取反校验 + 充电位 | 是 |
-| `example-keyboard.json` | 语法示例：握手帧 + 两字节小端 + 求和校验 | 是 |
-| `example-headphone.json` | 语法示例：串口 + 电压换算 + 关机假帧 | 是 |
+| `templates/template.json` | HID 协议模板，逐字段带中文注释 | 否（文件名含 `template`，自动跳过） |
+| `templates/serial-template.json` | 串口（虚拟 COM）协议模板 | 否（同上） |
+| `templates/example-mouse.json` | 语法示例：单字节电量 + 取反校验 + 充电位 | 是 |
+| `templates/example-keyboard.json` | 语法示例：握手帧 + 两字节小端 + 求和校验 | 是 |
+| `templates/example-headphone.json` | 语法示例：串口 + 电压换算 + 关机假帧 | 是 |
 
 > ⚠️ **三套 `example-*.json` 是纯虚构样例**：VID `0x1234`、帧头 `A5 5A` / `7E 01`、校验种子、
 > 电量位置全部为编写语法而编造，**不对应任何真实产品，也不是任何人的私人调试配置**。

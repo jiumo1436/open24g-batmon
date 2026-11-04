@@ -1,0 +1,52 @@
+{
+  "_说明": "实机验证配置：西伯利亚（XIBERIA）T7 无线耳机，2.4G 接收器。VID/PID 与收发帧均来自本机实测，非虚构示例。",
+  "format": "dianliang-device-pack",
+  "version": 1,
+  "note": "耳机走大报文通道：usage_page 0xFF90，单帧 64 字节，只有输出侧（min_in 为 0，因此不能靠输入长度筛选）。查询用 4 字节短帧 55 65 01 00 / 55 65 00 00，补零到 64 字节发出；回包锚点 55 65，电量在第 3 字节。关机时接收器仍在线且回包电量写 0，故开 zero_is_off，让卡片显示「已关机」而不是 0%。",
+  "devices": [
+    {
+      "key": "t7",
+      "name": "西伯利亚 T7 耳机",
+      "type": "headphone",
+      "wire": "2.4G",
+      "protocol": "私有协议 V1",
+
+      "transport": {
+        "type": "hid"
+      },
+
+      "match": {
+        "_说明": "该接收器同时暴露 0xFF82 与 0xFF90 两个 64 字节通道，电量走 0xFF90。",
+        "vid": "0x36F9",
+        "pid": "0xF008",
+        "usage_page": "0xFF90",
+        "min_in": 0,
+        "min_out": 64
+      },
+
+      "read": {
+        "query": [
+          "55 65 01 00",
+          "55 65 00 00"
+        ],
+        "pad_to": 64,
+        "attempts": 2,
+        "listen_ms": 400,
+
+        "reply": {
+          "contains": [
+            "55 65"
+          ],
+          "battery": {
+            "byte": 3,
+            "zero_is_off": true
+          },
+          "range": [
+            0,
+            100
+          ]
+        }
+      }
+    }
+  ]
+}
