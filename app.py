@@ -4156,6 +4156,41 @@ class SettingsDialog(QDialog):
         self.win.apply_colors()
 
 
+# ------------------- 系统事件：设备插拔 / 睡眠唤醒 -------------------
+# 这两类窗口消息一到，设备的可用状态其实已经变了。等下一轮定时刷新（最长 60 秒）
+# 才更新数字，用户会以为软件卡了，所以接住消息、稍等片刻就补刷一次。
+WM_DEVICECHANGE = 0x0219
+WM_POWERBROADCAST = 0x0218
+DBT_DEVICEARRIVAL = 0x8000          # 设备 / 接收器插入
+DBT_DEVICEREMOVECOMPLETE = 0x8004   # 设备 / 接收器拔出
+PBT_APMRESUMEAUTOMATIC = 0x0012     # 从睡眠自动唤醒
+PBT_APMRESUMESUSPEND = 0x0007       # 用户操作唤醒
+
+
+def _state_class(res):
+    """把一台设备的读取结果归成粗粒度状态，用来判断「这一轮状态变了没有」。
+
+    只关心会影响「还能不能读到电量」的差别，不比较具体百分比：
+      live  这轮真的读到了电量（当前值）
+      off   配置声明了 zero_is_off 且读到 0 —— 已关机
+      gone  接收器不在（设备消失 / 被拔掉）
+      idle  接收器在，但没读到电量（休眠、没回话、还没配读取方式）
+      wait  待解析（捕获到设备但还没有协议）
+      none  从没有过结果
+    """
+    if not res:
+        return "none"
+    if res.get("off"):
+        return "off"
+    if res.get("state") == "disconnected":
+        return "gone"
+    if res.get("battery") is not None and not res.get("stale"):
+        return "live"
+    if res.get("state") in ("capture", "capture_unknown"):
+        return "wait"
+    return "idle"
+
+
 class MainWindow(QMainWindow):
     STALE_KEEP = 1800         # 上次读数最多保留多久（秒）：够覆盖设备打盹，又不会挂一整天
 
@@ -4211,6 +4246,13 @@ class MainWindow(QMainWindow):
         self._watchdog = QTimer(self)
         self._watchdog.setSingleShot(True)
         self._watchdog.timeout.connect(self._on_watchdog)
+        # 状态变化触发的补刷（插拔 / 唤醒 / 设备刚开机）：多次事件合并成一次
+        self._kick = QTimer(self)
+        self._kick.setSingleShot(True)
+        self._kick.timeout.connect(self._on_kick)
+        self._kick_retry = 0            # 撞上正在刷新时的重试次数
+        self._last_kick = 0.0           # 上次安排补刷的时刻（冷却用）
+        self._state_before = {}         # 每轮刷新前的状态快照
         self._build_ui()
         self._render()  # 先立刻画出卡片（有上次读数就直接显示），避免空白
         if USER.get("tray"):
@@ -4657,6 +4699,8 @@ class MainWindow(QMainWindow):
                 self._busy = False
             else:
                 return
+        # 先记下每台设备此刻的状态，刷完用来判断「这一轮谁的状态变了」
+        self._state_before = {k: _state_class(v) for k, v in self.results.items()}
         self._busy = True
         self._busy_since = time.time()
         self.status.setText("正在读取设备电量…" + ("（已显示上次读数）" if self._from_cache else ""))
@@ -4731,10 +4775,72 @@ class MainWindow(QMainWindow):
         self.status.setText(base)
         self.status.setToolTip(base)
         self._busy = False
+        # 这一轮里设备刚恢复（开机 / 唤醒）：稍后再补一次，拿稳定读数
+        self._note_state_change()
 
     def _on_tick(self):
         if self.auto_refresh:
             self.refresh()
+
+    # -------------- 状态一变就刷新：插拔、睡眠唤醒、开关机 --------------
+
+    def nativeEvent(self, event_type, message):
+        """接 Windows 原生消息：USB 插拔、系统睡眠唤醒。
+
+        这两种事件意味着设备状态刚刚变了，没必要干等到下一轮定时刷新。
+        延迟几百毫秒是因为：系统枚举新设备、设备上电并准备好回包都需要一点时间，
+        立刻查反而会读到「设备在但没回话」。
+
+        这个钩子必须绝对安全 —— 任何异常都吞掉，最后原样交回 Qt 处理。
+        """
+        try:
+            if bytes(event_type).startswith(b"windows"):
+                msg = wintypes.MSG.from_address(int(message))
+                m, w = msg.message, msg.wParam
+                if m == WM_DEVICECHANGE and w in (DBT_DEVICEARRIVAL,
+                                                  DBT_DEVICEREMOVECOMPLETE):
+                    self._kick_refresh(700)      # 等设备枚举/上电
+                elif m == WM_POWERBROADCAST and w in (PBT_APMRESUMEAUTOMATIC,
+                                                      PBT_APMRESUMESUSPEND):
+                    self._kick_refresh(1500)     # 唤醒后 USB 栈要缓一下
+        except Exception:
+            pass
+        return super().nativeEvent(event_type, message)
+
+    def _kick_refresh(self, delay_ms):
+        """安排一次补刷。同一时间只排一个 —— USB 插拔会连发好几条消息，合并成一次。"""
+        if self._quitting or self._kick.isActive():
+            return
+        self._last_kick = time.time()
+        self._kick.start(max(200, int(delay_ms)))
+
+    def _on_kick(self):
+        """补刷到点：若上一轮还在读，等它读完再补，最多重试 2 次，避免两轮撞车。"""
+        if self._quitting:
+            return
+        if self._busy:
+            if self._kick_retry < 2:
+                self._kick_retry += 1
+                self._kick.start(1500)
+            return
+        self._kick_retry = 0
+        self.refresh()
+
+    def _note_state_change(self):
+        """某台设备刚从「关机 / 休眠 / 没读到」变成「读到了电量」——
+        说明它刚被打开或刚被唤醒。这类设备第一帧常常还没稳（有的开机头几秒
+        回的还是上一次的旧值），所以 2.5 秒后再补刷一次拿准确值。
+
+        只认「变成 live」这一个方向：live → 关机/离线 时界面本来就已更新，
+        不需要再补；60 秒内只补一次，免得信号抖动的设备把刷新拖成连发。
+        """
+        woke = [k for k, before in self._state_before.items()
+                if _state_class(self.results.get(k) or {}) == "live" and before != "live"]
+        if not woke:
+            return
+        if time.time() - self._last_kick < 60:
+            return
+        self._kick_refresh(2500)
 
     def _interval_seconds(self):
         """当前下拉框选中的间隔（秒）；0 表示不自动刷新。"""
