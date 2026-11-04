@@ -128,44 +128,97 @@ python -m PyInstaller --clean --noconfirm open24g-batmon.spec
 
 ### 4.2 组装发布包
 
+**一个版本一个目录**，不要把多个版本的 zip 平铺在 `release/` 根下——
+版本一多就分不清哪份是当前版，容易把旧包传上去。
+
+```
+release/
+├── v0.2.0/                              # 目录名 = tag 名
+│   ├── open24g-batmon-0.2.0-win64/      # 解压后的内容（zip 的根目录）
+│   ├── open24g-batmon-0.2.0-win64.zip   # 对外分发的包
+│   └── open24g-batmon-0.2.0-win64.zip.sha256
+└── v0.1.0/
+    └── ...
+```
+
 ```bash
-mkdir -p release/open24g-batmon-1.0.0-win64
-cp -r dist/设备电量监控/. release/open24g-batmon-1.0.0-win64/
-cp -r configs release/open24g-batmon-1.0.0-win64/configs
-cp docs/quick-start.txt release/open24g-batmon-1.0.0-win64/
-rm -f release/open24g-batmon-1.0.0-win64/configs/template.json \
-      release/open24g-batmon-1.0.0-win64/configs/serial-template.json
-cd release && 7z a open24g-batmon-1.0.0-win64.zip open24g-batmon-1.0.0-win64
+VER=0.3.0
+BASE=open24g-batmon-${VER}-win64
+
+mkdir -p release/v${VER}/${BASE}
+cp -r dist/设备电量监控/. "release/v${VER}/${BASE}/"
+cp -r configs "release/v${VER}/${BASE}/configs"
+cp docs/quick-start.txt "release/v${VER}/${BASE}/"
+cp LICENSE "release/v${VER}/${BASE}/"
+rm -f "release/v${VER}/${BASE}/configs/template.json" \
+      "release/v${VER}/${BASE}/configs/serial-template.json"
+cd "release/v${VER}" && 7z a ${BASE}.zip ${BASE}
 ```
 
 发布包内只放**能直接导入的配置**，模板文件留在仓库里即可。
+`LICENSE` 要随包分发 —— MIT 要求分发时附上许可证副本。
+
+> `release/` 已写进 `.gitignore`，整个目录不进版本库，只作为本地留档与上传源。
+> 对外分发以 GitHub Releases 为准。
 
 ### 4.3 生成校验和
 
 ```bash
 # Windows（PowerShell）
-Get-FileHash .\open24g-batmon-1.0.0-win64.zip -Algorithm SHA256
+Get-FileHash ".\release\v0.3.0\open24g-batmon-0.3.0-win64.zip" -Algorithm SHA256
 
 # Git Bash / Linux
-sha256sum open24g-batmon-1.0.0-win64.zip
+cd release/v0.3.0 && sha256sum open24g-batmon-0.3.0-win64.zip
 ```
 
 把结果贴进 Release 说明的「校验和」一节 —— 用户下载后可以自行核对。
 
+上传后到 Releases 页面点资产名，GitHub 会显示 `digest`（形如 `sha256:6d76...`），
+**与本地哈希逐字符比对**，一致才说明上传完整、可以公开。
+
 ### 4.4 打 tag 并发布
 
 ```bash
-git tag -a v1.0.0 -m "open24g-batmon v1.0.0"
-git push origin v1.0.0
-
-gh release create v1.0.0 \
-  release/open24g-batmon-1.0.0-win64.zip \
-  --title "v1.0.0 · 首个公开版本" \
-  --notes-file docs/release-notes-template.md
+git tag -a v0.3.0 -m "open24g-batmon v0.3.0"
+git push origin main
+git push origin v0.3.0
 ```
 
-不用 `gh` 也可以：GitHub → Releases → Draft a new release → 选 tag → 粘贴
+上传资产两条路：
+
+**A. 有 `gh` 时最省事**
+
+```bash
+gh release create v0.3.0 \
+  release/v0.3.0/open24g-batmon-0.3.0-win64.zip \
+  release/v0.3.0/open24g-batmon-0.3.0-win64.zip.sha256 \
+  --title "v0.3.0 · 一句话主题" \
+  --notes-file docs/release-notes-0.3.0.md
+```
+
+**B. 没有 `gh`：网页手动**
+
+GitHub → Releases → Draft a new release → 选 tag → 粘贴
 [`release-notes-template.md`](release-notes-template.md) 的内容 → 上传 zip → Publish。
+
+**C. 没有 `gh` 但想自动化：REST API**
+
+关键顺序是**先建草稿 → 传资产 → 核对 digest → 最后公开**。
+直接建正式 Release 再传 46 MB 资产，一旦上传中断，页面上就会留一个没有附件的空壳链接。
+
+```
+POST /repos/{owner}/{repo}/releases            {"tag_name":"v0.3.0","draft":true,"body":"..."}
+POST https://uploads.github.com/repos/{owner}/{repo}/releases/{id}/assets?name=xxx.zip
+     （Content-Type: application/zip，body 为文件二进制）
+PATCH /repos/{owner}/{repo}/releases/{id}      {"draft":false}
+```
+
+凭据可直接复用本机已存的 GitHub 登录态，不必新建 PAT：
+
+```bash
+printf "protocol=https\nhost=github.com\n\n" | git credential fill
+# 输出里的 password= 就是 token，需要 repo 作用域
+```
 
 ### 4.5 版本号约定
 

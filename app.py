@@ -2607,6 +2607,53 @@ class RefreshWorker(QThread):
         return out, err
 
 
+class IdleProbeWorker(QThread):
+    """轻量探测：只读「当前读不到、但以前读到过」的那几台设备。
+
+    为什么需要它：耳机、手柄这类设备的接收器一直插在电脑上，它们自己开关机
+    不会让 Windows 增删设备节点（收不到 DBT_DEVNODES_CHANGED），也不会产生
+    键鼠输入 —— 上面三条「状态一变就补刷」的信号全都碰不到。要让「耳机一开
+    机就出现电量」，只剩主动去问这一条路。
+
+    只问这几台，所以开销比一轮完整刷新还小；全部设备都在线时调用方根本不会
+    启动它（_probe_idle 里先判空），平时等于不存在。
+    """
+
+    one = Signal(str, dict)       # key, result（单台读完即推）
+    done = Signal(bool)           # 这一轮里有没有设备重新读到电量
+
+    def __init__(self, keys, should_stop=None):
+        super().__init__()
+        self.keys = list(keys)
+        # 退出时用来提前收尾：读一台设备最长要等 3.3 秒，不能每台都读完再退
+        self.should_stop = should_stop or (lambda: False)
+
+    def run(self):
+        woke = False
+        try:
+            try:
+                devs = enumerate_hid()
+            except Exception as e:
+                devs = []
+                log_err("空闲探测枚举失败: " + repr(e))
+            for key in self.keys:
+                if self.should_stop():
+                    break
+                try:
+                    res = probe_device(key, devs)
+                except Exception as e:
+                    log_err(f"probe {key} 异常: " + repr(e))
+                    continue
+                self.one.emit(key, res)
+                if res.get("battery") is not None and not res.get("off"):
+                    woke = True
+        finally:
+            try:
+                self.done.emit(woke)
+            except Exception as e:
+                log_err("done.emit 失败: " + repr(e))
+
+
 # =========================================================
 #  现代风格 UI
 # =========================================================
@@ -4163,6 +4210,7 @@ WM_DEVICECHANGE = 0x0219
 WM_POWERBROADCAST = 0x0218
 DBT_DEVICEARRIVAL = 0x8000          # 设备 / 接收器插入
 DBT_DEVICEREMOVECOMPLETE = 0x8004   # 设备 / 接收器拔出
+DBT_DEVNODES_CHANGED = 0x0007       # 设备树里有节点增删（不说是哪台、也不说方向）
 PBT_APMRESUMEAUTOMATIC = 0x0012     # 从睡眠自动唤醒
 PBT_APMRESUMESUSPEND = 0x0007       # 用户操作唤醒
 
@@ -4191,8 +4239,28 @@ def _state_class(res):
     return "idle"
 
 
+def last_input_tick():
+    """系统最近一次键鼠输入的计时值（毫秒，约 49 天回绕一次）；取不到返回 0。
+
+    只用来判断「刚才有没有人动手」，所以回绕不影响：只比较「和上次一不一样」。
+    """
+    try:
+        class _LASTINPUTINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("dwTime", wintypes.DWORD)]
+
+        li = _LASTINPUTINFO()
+        li.cbSize = ctypes.sizeof(_LASTINPUTINFO)
+        if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(li)):
+            return int(li.dwTime)
+    except Exception:
+        pass
+    return 0
+
+
 class MainWindow(QMainWindow):
     STALE_KEEP = 1800         # 上次读数最多保留多久（秒）：够覆盖设备打盹，又不会挂一整天
+    IDLE_PROBE_MS = 8000      # 「读不到的设备」快探间隔：耳机开机最迟 8 秒内出现
+    IDLE_GRACE = 180          # 单次没回包多久内仍算在线（秒），避免卡片闪「未响应」
 
     def __init__(self):
         super().__init__()
@@ -4253,6 +4321,33 @@ class MainWindow(QMainWindow):
         self._kick_retry = 0            # 撞上正在刷新时的重试次数
         self._last_kick = 0.0           # 上次安排补刷的时刻（冷却用）
         self._state_before = {}         # 每轮刷新前的状态快照
+        # 「一动键鼠就补刷」：所有 2.4G 设备（键 / 鼠 / 耳机）自己休眠、唤醒时
+        # Windows 都不发窗口消息，但人一动手就说明键鼠醒了 —— 这是不依赖任何
+        # 厂商协议、对所有设备通用的「设备级唤醒」信号。
+        self._last_input = last_input_tick()
+        self._last_input_kick = 0.0     # 上次因为动键鼠补刷的时刻
+        self._input_kick_gap = 4.0      # 补刷间隔：没起色就翻倍，最多 2 分钟
+        self._input_kick_pending = False
+        self._input_timer = QTimer(self)
+        self._input_timer.setInterval(700)      # 查一次「最后输入时刻」极便宜
+        self._input_timer.timeout.connect(self._watch_input)
+        if sys.platform == "win32":
+            self._input_timer.start()
+        # 「以前读到过、这会儿读不到」的设备单独快探：耳机开关机既不改变设备树
+        # 也不产生键鼠输入，只能主动问。全部在线时这个定时器什么也不做。
+        self._probing = False
+        self._probe_since = 0.0
+        self._idle_tick = 0          # 快探节拍：用来让「睡着的键鼠」降频探测
+        # 「刚从在线掉下来」的设备先原地重读一次再下结论，避免卡片闪「未响应」
+        self._retrying = set()
+        self._retry_pending = {}
+        self._retry_workers = {}
+        self._retry_ok = set()
+        self._idle_timer = QTimer(self)
+        self._idle_timer.setInterval(self.IDLE_PROBE_MS)
+        self._idle_timer.timeout.connect(self._probe_idle)
+        if sys.platform == "win32":
+            self._idle_timer.start()
         self._build_ui()
         self._render()  # 先立刻画出卡片（有上次读数就直接显示），避免空白
         if USER.get("tray"):
@@ -4382,7 +4477,25 @@ class MainWindow(QMainWindow):
         self.list_layout.addWidget(self.add_row)
         self.list_layout.addStretch(1)
         self._order = [p["key"] for p in PROFILES]
+        self._mute_key_focus()
         self.resize(760, 158 + 108 * sync_device_count() + 60)
+
+    def _mute_key_focus(self):
+        """按钮不参与键盘焦点。
+
+        默认情况下焦点会停在上一次点过的按钮上，于是随手按一下空格就等于又点了
+        那个按钮 —— 最常见的误触就是突然弹出「捕获报文」。这里让所有按钮都只认
+        鼠标：空格不再激活任何按钮。输入框（导入/搜索等）照常可以聚焦打字。
+        """
+        for w in self.findChildren(QPushButton):
+            w.setFocusPolicy(Qt.NoFocus)
+        for w in self.findChildren(AddDeviceRow):
+            w.setFocusPolicy(Qt.NoFocus)
+        try:
+            # 空格停在刷新间隔下拉框上会展开选项，同样属于「按空格乱开东西」
+            self.cbo_interval.setFocusPolicy(Qt.NoFocus)
+        except Exception:
+            pass
 
     def _refresh_count_text(self):
         n = sync_device_count()
@@ -4686,12 +4799,40 @@ class MainWindow(QMainWindow):
             self.timer.stop()
         except Exception:
             pass
+        try:
+            self._input_timer.stop()
+            self._idle_timer.stop()
+            self._kick.stop()
+        except Exception:
+            pass
+        # 退出时后台线程可能正卡在 HID 读取里：QThread 在运行中被销毁会让进程
+        # 直接消失（连异常都来不及记），所以这里等它们收尾。读一台设备最长约
+        # 3.3 秒，因此总共最多等 4 秒；线程本身也会看到 _quitting 提前 break。
+        try:
+            workers = list(getattr(self, "_retry_workers", {}).values())
+            pw = getattr(self, "probe_worker", None)
+            if pw is not None:
+                workers.append(pw)
+            deadline = time.time() + 4.0
+            for w in workers:
+                if w is None or not w.isRunning():
+                    continue
+                left = int((deadline - time.time()) * 1000)
+                if left <= 0:
+                    break
+                w.wait(left)
+        except Exception:
+            pass
         if self._tray is not None:
             self._tray.hide()
         Toast.close_all()
         QApplication.quit()
 
     def refresh(self):
+        if self._probing:
+            # 快探正在读那几台掉线设备，别同时抢同一个 HID 句柄；稍后再来
+            self._kick_refresh(1500)
+            return
         if self._busy:
             # 上一轮还没回来：超过 18 秒就认为卡死，强制解锁，避免按钮永远失灵
             if time.time() - self._busy_since > 18:
@@ -4718,10 +4859,62 @@ class MainWindow(QMainWindow):
 
     def _on_one(self, key, res):
         """单台设备读完就立刻更新那一张卡（不等其它设备）。"""
-        self.results[key] = self._merge_result(key, res)
+        old = self.results.get(key) or {}
+        merged = self._merge_result(key, res)
+        # 每轮刷新会先推一帧「在不在」（毫秒级的 HID 枚举结果），这一帧偶尔会
+        # 漏掉正在回包的设备，把「已连接」错翻成「未连接」，真实读数回来后又翻
+        # 回去 —— 卡片就会「已连接 → 断开 → 已连接」闪一下。
+        # 刷新途中不让这一帧覆盖在线设备；真拔掉的情况由本轮结束后的整体重画
+        # 和 0x0007 设备树通知负责，最多晚一两秒。
+        if (self._busy and res.get("state") == "disconnected"
+                and old.get("state") in ("connected", "capture", "capture_unknown")):
+            return
+        # 刚还在线、这一帧却没回包：有的键盘每轮只问一次，偶发丢包很常见，立刻
+        # 翻成「未响应」再 2.5 秒后补回来，就成了「已连接 → 未响应 → 已连接」。
+        # 这种情况先原地重读一次再下结论；重读期间卡片保持原样，成功就完全无感。
+        if (_state_class(old) == "live" and _state_class(merged) != "live"
+                and res.get("state") in ("connected", "capture", "capture_unknown")
+                and not res.get("off")):
+            if key in self._retrying:
+                return          # 已经在重读，等它的结论，别让中间帧抢先上屏
+            self._retrying.add(key)
+            self._retry_pending[key] = merged
+            w = IdleProbeWorker([key], lambda: self._quitting)
+            w.one.connect(self._on_retry_one)
+            w.done.connect(lambda _woke, k=key: self._on_retry_done(k))
+            self._retry_workers[key] = w
+            w.start()
+            return
+        self.results[key] = merged
         card = self.cards.get(key)
         if card is not None:
-            card.apply(self.results[key])
+            card.apply(merged)
+
+    def _on_retry_one(self, key, res):
+        """确认重读的结果：读到了就直接替换，卡片不会经历「未响应」。"""
+        if res.get("battery") is None:
+            return
+        merged = self._merge_result(key, res)
+        self.results[key] = merged
+        self._retry_ok.add(key)                 # 记下「这次重读确实读到了」
+        self._retry_pending.pop(key, None)      # 成功就不必再回退
+        card = self.cards.get(key)
+        if card is not None:
+            card.apply(merged)
+
+    def _on_retry_done(self, key):
+        """重读结束：真的没读到才如实显示「未响应」。"""
+        self._retrying.discard(key)
+        self._retry_workers.pop(key, None)
+        ok = key in self._retry_ok
+        self._retry_ok.discard(key)
+        pend = self._retry_pending.pop(key, None)
+        if self._quitting or ok or pend is None:
+            return                              # 重读成功，保持在线的样子
+        self.results[key] = pend
+        card = self.cards.get(key)
+        if card is not None:
+            card.apply(pend)
 
     def _merge_result(self, key, res):
         """新的结果没带电量（还没读到 / 设备这轮没回话）时，保留上次的真实读数。
@@ -4736,6 +4929,15 @@ class MainWindow(QMainWindow):
         """
         old = self.results.get(key) or {}
         present = ("connected", "capture", "capture_unknown")
+        # 「这一轮没回包」不等于设备状态变了：键鼠停手就自己打盹是常态，读一次
+        # 没回不代表掉线。IDLE_GRACE 秒内继续按「已连接 + 上次读数」显示，超过
+        # 才翻成「未响应」—— 否则点一次刷新，卡片就会闪一下「未响应」再跳回来。
+        if (res.get("battery") is None and old.get("battery") is not None
+                and not res.get("off")
+                and res.get("state") == "connected"
+                and old.get("state") == "connected"
+                and time.time() - self._last_ok.get(key, 0.0) < self.IDLE_GRACE):
+            return dict(old)
         if res.get("battery") is not None:
             self._last_ok[key] = time.time()      # 记下「这次真读到了」的时间
         keep_a_while = (res.get("battery") is None and old.get("battery") is not None
@@ -4777,19 +4979,33 @@ class MainWindow(QMainWindow):
         self._busy = False
         # 这一轮里设备刚恢复（开机 / 唤醒）：稍后再补一次，拿稳定读数
         self._note_state_change()
+        # 「动键鼠」触发的那次补刷有结果了：读回来了就恢复灵敏，仍没起色就退避
+        if self._input_kick_pending:
+            self._input_kick_pending = False
+            back = any(_state_class(v) == "live"
+                       for k, v in self.results.items() if self._last_ok.get(k))
+            self._input_kick_gap = 4.0 if back else min(self._input_kick_gap * 2, 120.0)
 
     def _on_tick(self):
         if self.auto_refresh:
             self.refresh()
 
-    # -------------- 状态一变就刷新：插拔、睡眠唤醒、开关机 --------------
+    # -------- 状态一变就刷新：插拔、设备树变化、系统唤醒、键鼠唤醒 --------
 
     def nativeEvent(self, event_type, message):
-        """接 Windows 原生消息：USB 插拔、系统睡眠唤醒。
+        """接 Windows 原生消息：USB 插拔、设备树变化、系统睡眠唤醒。
 
-        这两种事件意味着设备状态刚刚变了，没必要干等到下一轮定时刷新。
+        这些事件意味着设备状态刚刚变了，没必要干等到下一轮定时刷新。
         延迟几百毫秒是因为：系统枚举新设备、设备上电并准备好回包都需要一点时间，
         立刻查反而会读到「设备在但没回话」。
+
+        三种消息的分工（这也是「插拔为什么时灵时不灵」的根源）：
+          · DBT_DEVICEARRIVAL / REMOVECOMPLETE：带具体设备名，但 HID 设备
+            （键鼠接收器就是 HID）只有程序事先向系统「预约」过才会收到；
+          · DBT_DEVNODES_CHANGED(0x0007)：设备树里多一个/少一个节点，所有窗口都能
+            收到，但不说是哪台、也不说方向 —— 插拔接收器、设备上电下电基本都是它；
+          · PBT_APMRESUME*：整机从睡眠醒来。
+        之前只认前两种，所以插拔接收器时多半什么也没干（正好撞上定时刷新才像是生效）。
 
         这个钩子必须绝对安全 —— 任何异常都吞掉，最后原样交回 Qt 处理。
         """
@@ -4797,9 +5013,13 @@ class MainWindow(QMainWindow):
             if bytes(event_type).startswith(b"windows"):
                 msg = wintypes.MSG.from_address(int(message))
                 m, w = msg.message, msg.wParam
-                if m == WM_DEVICECHANGE and w in (DBT_DEVICEARRIVAL,
-                                                  DBT_DEVICEREMOVECOMPLETE):
-                    self._kick_refresh(700)      # 等设备枚举/上电
+                if m == WM_DEVICECHANGE:
+                    if w in (DBT_DEVICEARRIVAL, DBT_DEVICEREMOVECOMPLETE):
+                        self._kick_refresh(700)      # 等设备枚举/上电
+                    elif w == DBT_DEVNODES_CHANGED:
+                        # 一次插拔会连发好几条，_kick_refresh 自己合并成一次；
+                        # 节点变化后系统还要枚举几轮，多等一会儿再问
+                        self._kick_refresh(1200)
                 elif m == WM_POWERBROADCAST and w in (PBT_APMRESUMEAUTOMATIC,
                                                       PBT_APMRESUMESUSPEND):
                     self._kick_refresh(1500)     # 唤醒后 USB 栈要缓一下
@@ -4825,6 +5045,91 @@ class MainWindow(QMainWindow):
             return
         self._kick_retry = 0
         self.refresh()
+
+    def _watch_input(self):
+        """有没有人动键鼠。每 0.7 秒看一眼「最近一次输入的时刻」，开销可以忽略。
+
+        用 GetLastInputInfo 而不是鼠标钩子：它是系统级的累计时刻，鼠标挪一下、
+        敲一下键盘都会变，不需要装钩子、不碰任何设备，也不需要管理员权限。
+        """
+        if self._quitting:
+            return
+        tick = last_input_tick()
+        if not tick or tick == self._last_input:
+            return
+        self._last_input = tick
+        self._on_user_input()
+
+    def _on_user_input(self):
+        """有人在用键鼠：给「本来读得到、这会儿读不到」的设备立刻补刷一次。
+
+        键鼠（以及耳机）自己休眠/唤醒都是设备自己的省电行为，Windows 不会为此
+        发任何窗口消息，光靠定时器要等一整轮（默认 20 秒）—— 这段时间卡片一直
+        挂着「未响应」，看着像软件死了。
+
+        而人一动手，键鼠就一定已经醒了（敲键必然由键盘发出、移动必然由鼠标发出），
+        所以这是「设备级唤醒」最通用、也不依赖任何厂商协议的一个信号：
+        哪家的鼠标键盘都一样，不需要改任何设备配置。
+
+        只补刷「曾经读到过敏捷读数」的设备：关机 / 没插的设备动键鼠也回不来，
+        不必凑热闹。连续补刷都没起色（设备确实关了）就把间隔翻倍，最多 2 分钟一次，
+        免得一边用电脑一边被反复刷新拖慢。
+        """
+        if self._quitting or not self.auto_refresh:
+            return
+        if not any(_state_class(v) != "live" and self._last_ok.get(k)
+                   for k, v in self.results.items()):
+            return
+        now = time.time()
+        if now - self._last_input_kick < self._input_kick_gap:
+            return
+        self._last_input_kick = now
+        self._input_kick_pending = True
+        self._kick_refresh(1000)     # 设备刚醒，给它 1 秒收拾好再问
+
+    def _probe_idle(self):
+        """每隔 8 秒问一次「读不到但读到过」的设备：回来了没有。
+
+        这条路专门补耳机、手柄这类设备的开机：接收器一直插着，耳机开关机
+        不改变设备树、也没有键鼠输入，前面几条信号根本碰不到它。
+        只看这几台，全部在线时直接返回，不产生任何读取。
+        """
+        if self._quitting or not self.auto_refresh:
+            return
+        # 上一次探测卡住（驱动不返回）也要能解锁，不能把快探永久停摆
+        if self._probing:
+            if time.time() - self._probe_since < 15:
+                return
+            self._probing = False
+        if self._busy:
+            return
+        # 关机 / 接收器不在：这是「耳机开机、设备上电」最典型的两种状态，
+        # 每 8 秒问一次，开机后很快就能出现在界面上。
+        # 「这轮没回包」（睡着的键鼠）不急着探：人一动键鼠就有补刷信号，
+        # 而且读一个睡着的鼠标要干等 3 秒多，所以每 4 次里顺带问一次（约 32 秒）。
+        fast = [k for k, v in self.results.items()
+                if _state_class(v) in ("off", "gone")]
+        slow = [k for k, v in self.results.items()
+                if _state_class(v) == "idle"]
+        self._idle_tick += 1
+        keys = fast + (slow if self._idle_tick % 4 == 0 else [])
+        if not keys:
+            return
+        self._probing = True
+        self._probe_since = time.time()
+        self._state_before = {k: _state_class(v) for k, v in self.results.items()}
+        self.probe_worker = IdleProbeWorker(keys, lambda: self._quitting)
+        self.probe_worker.one.connect(self._on_one)
+        self.probe_worker.done.connect(self._on_probe_done)
+        self.probe_worker.start()
+
+    def _on_probe_done(self, woke):
+        self._probing = False
+        if self._quitting or not woke:
+            return
+        # 有设备刚被打开 / 唤醒：借一次「空刷新」把状态栏、在线台数、低电量
+        # 提醒一并算对；_note_state_change 还会安排 2.5 秒后补读一次稳定值。
+        self._on_refreshed([], "")
 
     def _note_state_change(self):
         """某台设备刚从「关机 / 休眠 / 没读到」变成「读到了电量」——
@@ -4901,6 +5206,11 @@ class MainWindow(QMainWindow):
             f"读取方式：{N_DEVICES} 台并行、逐台出结果；启动先用上次读数秒显，随后 1~2 秒内更新。",
             "刷新间隔：顶部第二行下拉框可选 5 秒 ~ 10 分钟，或选「不自动刷新」；",
             "          选择会被记住，下次启动沿用。",
+            "唤醒补刷：设备自己休眠/唤醒时系统不发任何消息，所以软件只要你动一下",
+            "          鼠标或敲一下键盘就立刻补读一次；插拔接收器、设备上下电、",
+            "          电脑睡眠唤醒也会自动补刷 —— 对所有 2.4G 设备通用，不用改配置。",
+            "          耳机这类不靠键鼠触发的设备，会每 8 秒单独问一次（只问读不到的），",
+            "          开机后最迟 8 秒内出现在界面上，全部在线时不产生任何额外读取。",
             "协议明细：点顶部「协议一览」，可看到每台设备的 VID/PID、接口、",
             "          查询帧与电量字段，支持一键复制。",
             "添加新设备：点列表最下面「＋ 导入设备」，选一个 .json 协议文件，",
