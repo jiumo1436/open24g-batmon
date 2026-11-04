@@ -133,13 +133,16 @@ python -m PyInstaller --clean --noconfirm open24g-batmon.spec
 
 ```
 release/
-├── v0.2.0/                              # 目录名 = tag 名
-│   ├── open24g-batmon-0.2.0-win64/      # 解压后的内容（zip 的根目录）
-│   ├── open24g-batmon-0.2.0-win64.zip   # 对外分发的包
-│   └── open24g-batmon-0.2.0-win64.zip.sha256
-└── v0.1.0/
-    └── ...
+└── v0.2.2/                              # 目录名 = tag 名
+    ├── open24g-batmon-0.2.2-win64/      # 解压后的内容（zip 的根目录）
+    ├── open24g-batmon-0.2.2-win64.zip   # 对外分发的包
+    └── open24g-batmon-0.2.2-win64.zip.sha256
 ```
+
+> **只保留当前版本**：新版本发布并核验通过后，把上一版的 `release/vX.Y.Z/`
+> 整目录删掉。这个目录只是上传源与本地备份，GitHub 上已经是权威副本，
+> 留着旧版只会占几十 MB 并增加「传错包」的机会。
+> 对应地，GitHub Releases 也只保留最新一版（见 4.6）。
 
 ```bash
 VER=0.3.0
@@ -235,6 +238,37 @@ printf "protocol=https\nhost=github.com\n\n" | git credential fill
 
 新增设备配置本身不必发版，但建议每积累 10~20 份配置发一次次版本，
 让用户能一次拿到最新协议库。
+
+### 4.6 清理旧版本（每次发版后都要做）
+
+**GitHub Releases 与 tag 只保留最新一版。**
+
+理由很实际：这是个单人维护的小工具，用户只会下最新版。旧版本挂在 Releases
+页面上只会让人站在下载页犹豫「我该下哪个」；更麻烦的是旧包里带着已经修掉的
+bug，被下载走就是负资产。
+
+```bash
+# 1. 取旧 release 的 id
+curl -s -H "Authorization: Bearer $T" \
+  "https://api.github.com/repos/jiumo1436/open24g-batmon/releases?per_page=30" \
+  | python -c "import sys,json;[print(r['id'], r['tag_name']) for r in json.load(sys.stdin)]"
+
+# 2. 删 Release（资产随 Release 一起消失，不可撤销）
+curl -X DELETE -H "Authorization: Bearer $T" \
+  "https://api.github.com/repos/jiumo1436/open24g-batmon/releases/<id>"
+
+# 3. 删本地与远程 tag
+git tag -d v<旧版本>
+git push origin --delete v<旧版本>
+```
+
+删 tag 不影响历史完整性 —— tag 只是指向某个 commit 的标签，commit 本身仍在
+`git log` 里。要回溯旧版本代码，`git log` 或 `git diff v旧..v新` 之前先
+`git tag` 临时打回来即可。
+
+> 同时删掉 `docs/release-notes-<旧版本>.md` 和 `release/v<旧版本>/` 目录，
+> 把 README 与 `release/README.md` 里的版本表改成一版。
+> 只留「当前这版的说明 + 模板」，历史变更靠 commit message 追溯。
 
 ---
 
