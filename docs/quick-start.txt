@@ -1,4 +1,4 @@
-open24g-batmon 0.2.3  ·  2.4G 外设电量监控
+open24g-batmon 0.2.4  ·  2.4G 外设电量监控
 ================================================
 
 【怎么用】
@@ -22,20 +22,29 @@ exe 单独拷到别处是打不开的，要挪位置就整个文件夹一起挪�
 
 【configs 里面是什么】
 
-configs\example-mouse.json     HID 单字节读取 + 反码校验 + 充电位        （虚构样例）
-configs\example-keyboard.json  握手帧 + 两字节小端 + 尾部求和校验        （虚构样例）
-configs\example-headphone.json 串口接收器 + 电压映射 + 关机识别          （虚构样例）
+configs\devices\     四份实机配置，导入即用：
+  vxe-r1-se-plus.json   VXE R1 SE+ 鼠标        17 字节，取反校验
+  vgn-f1-pro.json       VGN 蜻蜓 F1 Pro 鼠标   同族协议，回包多一个报告 ID
+  aula-f87.json         狼蛛 F87 键盘          先握手再查询
+  xiberia-t7.json       西伯利亚 T7 耳机       64 字节大报文
 
-这三份是**纯虚构的语法样例**，VID 统一写成 0x1234，不对应任何真实硬件，
-导入后不会读到数据 —— 它们的作用是让你照着格式写自己的设备。
+configs\templates\   模板与语法示例。这几份的 VID 统一写成 0x1234，不对应任何
+                     真实硬件，导入后读不到数据 —— 作用是让你照着格式写自己的。
+
+这四个不是「支持列表」，而是四种典型协议形态的参照。你的设备如果不在里面，
+导入后不会匹配到接口，需要自己写一份配置（见下）。
 
 【想支持你自己的设备】
 
 去仓库拿模板和教程：
   https://github.com/jiumo1436/open24g-batmon
-  configs\template.json          字段逐行中文注释
-  docs\config-making-guide.md    抓包 → 定位帧 → 写配置 → 验证，全流程
-  docs\config-schema.md          每个字段的准确含义
+  configs\templates\template.json  字段逐行中文注释
+  docs\config-making-guide.md      抓包 → 定位帧 → 写配置 → 验证，全流程
+  docs\config-schema.md            每个字段的准确含义
+
+不想自己啃协议？仓库里有 AI 技能包 skills\24g-device-config，装到支持 skill 的
+AI 客户端后说一句「我有个 XX 设备，能加上吗」，它会带你查 VID/PID、分析抓包、
+定位电量字节，生成配置并校验。中途缺数据会停下来问你，不会瞎编参数。
 
 写好后放进 configs\ 目录，回到软件「＋ 导入设备」里勾选导入即可，不用改代码。
 读取成功的话，欢迎把配置连同抓包日志和实测截图提 PR，让更多人用上。
