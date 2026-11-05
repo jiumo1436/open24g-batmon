@@ -151,6 +151,7 @@ BASE=open24g-batmon-${VER}-win64
 mkdir -p release/v${VER}/${BASE}
 cp -r dist/设备电量监控/. "release/v${VER}/${BASE}/"
 cp -r configs "release/v${VER}/${BASE}/configs"
+cp -r skills "release/v${VER}/${BASE}/skills"
 cp docs/quick-start.txt "release/v${VER}/${BASE}/"
 cp LICENSE "release/v${VER}/${BASE}/"
 
@@ -177,6 +178,15 @@ cd "release/v${VER}" && 7z a ${BASE}.zip ${BASE}
   所以不再需要 rm 掉模板（旧版本有这一步，现已取消）。
 
 `LICENSE` 要随包分发 —— MIT 要求分发时附上许可证副本。
+
+**`skills/` 也随包分发**（80 KB，可忽略体积）：
+
+- 技能包原本只在仓库里，用户想用还得先找到仓库、单独下载、自己判断放哪，
+  大部分人走不到第三步；放在 `configs/` 旁边，解压就看见，`quick-start.txt`
+  里给了要复制到的确切路径。
+- 它不参与程序运行，软件启动和读电量都不会碰这个目录，删掉不影响任何功能。
+- 打包时**不要**带 `__pycache__`：跑过脚本会生成，`cp -r` 会一起带走。
+  打完用 `unzip -l` 确认一遍没有 `__pycache__`。
 
 > `release/` 已写进 `.gitignore`，整个目录不进版本库，只作为本地留档与上传源。
 > 对外分发以 GitHub Releases 为准。
@@ -292,5 +302,6 @@ git push origin --delete v<旧版本>
 - [ ] `configs/` 里没有私人真实调试配置，3 套 `example-*.json` 仍为虚构值
 - [ ] exe 在干净的 Windows 上双击可启动，首次打开显示「暂无设备」
 - [ ] 发布包内 `configs/` 与 exe 同级，导入后能读到至少一台真实设备
+- [ ] 发布包内 `skills/24g-device-config/` 完整（8 个文件），且没有 `__pycache__`
 - [ ] Release 说明填了「新增设备配置」「已知问题」「校验和」
 - [ ] README 截图与当前界面一致

@@ -51,7 +51,8 @@ python skills/24g-device-config/scripts/validate_config.py configs/devices/你�
 
 ## 说明
 
-- `skills/` **不参与打包**：发布包只含 `设备电量监控.exe`、`_internal/`、`configs/`、
-  `quick-start.txt`、`LICENSE`，这个目录只在仓库里给做配置的人用。
+- `skills/` **随发布包一起分发**：从 Releases 下载的 zip 解压后，`skills/` 就在
+  `configs/` 旁边，不用再回仓库找。装法见上一节「怎么装」，装好后重启 AI 客户端即可。
+  不需要 AI 的话，这个目录放着不影响软件运行，删掉也没关系。
 - AI 生成的配置**必须实机验证**再提 PR。技能里写死了这条：不允许在用户实测前声称「能用」。
 - 配置的字段定义以 `docs/config-schema.md` 为准；本目录的 `references/schema.md` 是给 AI 的速查版。

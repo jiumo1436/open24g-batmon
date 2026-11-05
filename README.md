@@ -63,6 +63,7 @@ HID（USB 报文）与串口（虚拟 COM）两条通道共用同一套通用解
 
 在 Releases 页面下载 `open24g-batmon-<版本>-win64.zip`，解压后双击 `设备电量监控.exe`。
 **exe 必须和同目录的 `_internal\` 文件夹待在一起**（压缩包内已带好），`configs/` 也放在同一层。
+包里还带了 `skills/`（AI 技能包，见下文「不会写？让 AI 帮你写」），它不参与运行，用不上可以删。
 
 > **为什么是「目录版」而不是单个 exe？** 单文件打包（onefile）每次启动都要把约 112 MB 的
 > Python + Qt 运行时解包到 `%TEMP%\_MEIxxxxxx`，正常退出才会自己删；一旦崩溃或被任务管理器
@@ -136,7 +137,8 @@ python app.py
 
 ### 不会写？让 AI 帮你写
 
-仓库带了一个 AI 技能包 [`skills/24g-device-config`](skills/README.md)。装到支持 skill 的 AI 客户端后，
+仓库带了一个 AI 技能包 [`skills/24g-device-config`](skills/README.md)，**发布包的 zip 里也有一份**，
+解压即见，不用额外的下载步骤。装到支持 skill 的 AI 客户端后，
 说一句「我有个 XX 设备，能加上吗」，它会带你去查 VID/PID、分析抓包、定位电量字节，
 生成配置并校验——中途会明确告诉你哪一步缺数据、哪里还是猜的。
 
@@ -183,7 +185,7 @@ open24g-batmon/
 │   ├── contribute-guide.md    # 社区贡献指南（PR 硬性准入条件）
 │   ├── verify.md              # 手动验证清单（无硬编码 / 不崩溃 / 托盘 / 串口）
 │   ├── publish-guide.md       # 仓库简介、topics、git 命令、Release 流程
-│   ├── release-notes-0.2.4.md # 当前版本的发布说明（只保留最新一版）
+│   ├── release-notes-0.2.5.md # 当前版本的发布说明（只保留最新一版）
 │   ├── release-notes-template.md # Release 说明模板
 │   └── repo-checklist.md      # 仓库自检核对清单
 ├── assets/                    # 截图与演示素材
@@ -191,7 +193,7 @@ open24g-batmon/
 ├── tools/
 │   ├── validate-config.py     # 命令行校验配置（不开界面）
 │   └── check-filenames.py     # 检查文件名是否全为小写英文
-├── skills/                    # AI 技能包：让 AI 帮你写设备配置
+├── skills/                    # AI 技能包：让 AI 帮你写设备配置（发布包里也带一份）
 │   ├── README.md              # 装法（WorkBuddy / Claude Code / 通用）
 │   └── 24g-device-config/     # SKILL.md + 字段速查 + 协议形态 + 推断/校验脚本
 └── .github/

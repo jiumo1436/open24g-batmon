@@ -1,4 +1,4 @@
-open24g-batmon 0.2.4  ·  2.4G 外设电量监控
+open24g-batmon 0.2.5  ·  2.4G 外设电量监控
 ================================================
 
 【怎么用】
@@ -15,6 +15,7 @@ open24g-batmon 0.2.4  ·  2.4G 外设电量监控
 设备电量监控.exe   ← 双击这个
 _internal\         ← 运行时（Python + Qt，约 112MB），必须和 exe 同级
 configs\           ← 待导入的配置样例，导入时才读
+skills\            ← AI 技能包，让 AI 帮你写配置（用不上可以删，不影响软件）
 协议库\            ← 导入/导出过的协议都在这儿留一份（首次导入后生成）
 
 exe 单独拷到别处是打不开的，要挪位置就整个文件夹一起挪。
@@ -42,9 +43,19 @@ configs\templates\   模板与语法示例。这几份的 VID 统一写成 0x123
   docs\config-making-guide.md      抓包 → 定位帧 → 写配置 → 验证，全流程
   docs\config-schema.md            每个字段的准确含义
 
-不想自己啃协议？仓库里有 AI 技能包 skills\24g-device-config，装到支持 skill 的
-AI 客户端后说一句「我有个 XX 设备，能加上吗」，它会带你查 VID/PID、分析抓包、
+不想自己啃协议？这个压缩包里就带着 AI 技能包，位置在 skills\24g-device-config。
+把那个文件夹整个复制到 AI 客户端的技能目录，重启客户端就能用：
+
+  WorkBuddy      C:\Users\你的用户名\.workbuddy\skills\   （目录不存在就自己建）
+  Claude Code    放到项目的 .claude\skills\ 下
+
+装好后说一句「我有个 XX 设备，能加上吗」，它会带你查 VID/PID、分析抓包、
 定位电量字节，生成配置并校验。中途缺数据会停下来问你，不会瞎编参数。
+
+不装 AI 也能用：skills\24g-device-config\scripts\ 里两个脚本独立可跑，只需要
+Python 3，不用装 PySide6。
+  analyze_frames.py     喂几帧回包，推断电量在第几字节、校验怎么算
+  validate_config.py    校验写好的 JSON，规则和软件导入时完全一致
 
 写好后放进 configs\ 目录，回到软件「＋ 导入设备」里勾选导入即可，不用改代码。
 读取成功的话，欢迎把配置连同抓包日志和实测截图提 PR，让更多人用上。
