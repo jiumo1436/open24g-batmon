@@ -5997,7 +5997,8 @@ class ImportDialog(QDialog):
         b_tpl.clicked.connect(self.export_template)
         b_cfg = QPushButton("浏览 configs")
         b_cfg.setObjectName("ghost")
-        b_cfg.setToolTip(f"递归读取 {CONFIGS_DIR} 下的全部 .json / .yaml（可以按厂商建子文件夹）")
+        b_cfg.setToolTip(f"递归读取 {CONFIGS_DIR} 下的全部 .json / .yaml（可以按厂商建子文件夹；"
+                         f"templates 示例目录不读取）")
         b_cfg.clicked.connect(self.load_configs)
         b_dir = QPushButton("打开协议库")
         b_dir.setObjectName("ghost")
@@ -6036,10 +6037,15 @@ class ImportDialog(QDialog):
         return cfg if has else ensure_pack_dir()
 
     def configs_files(self):
-        """递归列出 configs 下的所有配置文件（支持按厂商分文件夹）。"""
+        """递归列出 configs 下的所有配置文件（支持按厂商分文件夹）。
+
+        configs/templates/ 整个目录跳过：里面是格式示例，参数是编的，
+        导入后必然读不到数，留在待导入列表里只会让人以为程序坏了。
+        """
         root = ensure_configs_dir()
         out = []
-        for base, _dirs, files in os.walk(root):
+        for base, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if d.lower() != "templates"]
             for name in files:
                 low = name.lower()
                 if "template" in low:       # 模板不是设备，别混进待导入列表
@@ -6052,7 +6058,8 @@ class ImportDialog(QDialog):
         """一键把 configs 目录里的设备配置全部读进表格，勾选后再导入。"""
         files = self.configs_files()
         if not files:
-            self.msg.setText(f"configs 目录里没有设备配置：{CONFIGS_DIR}（template.json 不算）")
+            self.msg.setText(f"configs 目录里没有设备配置：{CONFIGS_DIR}"
+                             f"（templates 示例目录不算）")
             return
         self.load_files(files)
 
