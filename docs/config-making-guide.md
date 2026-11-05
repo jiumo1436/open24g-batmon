@@ -6,6 +6,9 @@
 - 只想查字段含义？看 [字段说明](config-schema.md)。
 - 已经写好配置，想提交？看 [贡献指南](contribute-guide.md)。
 - 不想看原理，直接抄？从 [`configs/templates/template.json`](../configs/templates/template.json) 开始改，遇到问题回本文查。
+- **不想自己啃抓包？** 把仓库里的 AI 技能包 [`skills/24g-device-config`](../skills/README.md)
+  装到支持 skill 的 AI 客户端，说「我有个 XX 设备，能加上吗」，它会带着你走完下面全部流程，
+  并且能直接分析你粘给它的十六进制帧。
 
 > 全程只需要：一台 Windows 电脑、你要适配的那台设备、它的 2.4G 接收器、以及**厂商自己的驱动软件**。
 > 厂商软件在这里的作用是「帮我们触发查询帧」，抓完就可以关掉。

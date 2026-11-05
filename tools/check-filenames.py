@@ -28,7 +28,8 @@ for stream in (sys.stdout, sys.stderr):
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Git 生态约定俗成、必须保持大写的名字（GitHub 首页 / 许可证 / issue 模板依赖它们）
-ALLOW = {"README.md", "LICENSE", "ISSUE_TEMPLATE", "PULL_REQUEST_TEMPLATE.md"}
+# SKILL.md 是 AI 技能规范强制要求的文件名，改名会让技能加载不到，故一并放行。
+ALLOW = {"README.md", "LICENSE", "ISSUE_TEMPLATE", "PULL_REQUEST_TEMPLATE.md", "SKILL.md"}
 # 自动生成 / 无需检查的目录
 SKIP_DIRS = {".git", "build", "dist", "release", "__pycache__", ".venv", "venv",
              "node_modules", ".idea", ".vscode"}

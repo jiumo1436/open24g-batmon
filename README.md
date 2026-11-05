@@ -92,10 +92,11 @@ python app.py
 
 仓库自带两类配置：
 
-- **三份实机种子配置**（鼠标 / 键盘 / 耳机各一台），可直接导入使用：
-  [`vxe-r1-se-plus.json`](configs/devices/vxe-r1-se-plus.json)、[`aula-f87.json`](configs/devices/aula-f87.json)、
-  [`xiberia-t7.json`](configs/devices/xiberia-t7.json)。它们分别演示单帧查询、握手 + 查询、大报文输出通道
-  三种最常见形态，是你写新配置时最好的参照。**如果你的设备不是这三款，导入后不会匹配到接口**，
+- **四份实机种子配置**（两只鼠标、一只键盘、一只耳机），可直接导入使用：
+  [`vxe-r1-se-plus.json`](configs/devices/vxe-r1-se-plus.json)、[`vgn-f1-pro.json`](configs/devices/vgn-f1-pro.json)、
+  [`aula-f87.json`](configs/devices/aula-f87.json)、[`xiberia-t7.json`](configs/devices/xiberia-t7.json)。
+  它们分别演示单帧查询、握手 + 查询、大报文输出通道，以及同厂协议多一个报告 ID 前缀的变体
+  四种最常见形态，是你写新配置时最好的参照。**如果你的设备不是这四款，导入后不会匹配到接口**，
   按 [配置制作教程](docs/config-making-guide.md) 抓包后自己写即可。
 - **三份纯虚构的语法示例**（[`example-mouse.json`](configs/templates/example-mouse.json)、
   [`example-keyboard.json`](configs/templates/example-keyboard.json)、
@@ -133,6 +134,24 @@ python app.py
 读流程：`passive_ms` 纯听 → `pre` 握手 → `query` 查询 → 在回包里找 `contains` 锚点 →
 按 `battery` 规则换算 → 落到 `range` 内才算读到。
 
+### 不会写？让 AI 帮你写
+
+仓库带了一个 AI 技能包 [`skills/24g-device-config`](skills/README.md)。装到支持 skill 的 AI 客户端后，
+说一句「我有个 XX 设备，能加上吗」，它会带你去查 VID/PID、分析抓包、定位电量字节，
+生成配置并校验——中途会明确告诉你哪一步缺数据、哪里还是猜的。
+
+两个脚本也能单独用，不需要 AI、不需要装 PySide6：
+
+```bash
+# 从两帧不同电量的回包里推断电量字节、锚点和校验方式
+python skills/24g-device-config/scripts/analyze_frames.py \
+  --frame "0A 5A A5 12 00 00 00 00 55 00 00 00 00 00 00 00 00 00 00 66" --pct 85 \
+  --frame "0A 5A A5 12 00 00 00 00 2F 01 00 00 00 00 00 00 00 00 00 41" --pct 47
+
+# 校验写好的配置（与界面导入同一套规则）
+python skills/24g-device-config/scripts/validate_config.py configs/devices/你的文件.json
+```
+
 ## 目录结构
 
 ```
@@ -149,6 +168,7 @@ open24g-batmon/
 │   ├── README.md              # 目录说明与命名规范
 │   ├── devices/               # 实机配置（真实硬件验证过，导入即用）
 │   │   ├── vxe-r1-se-plus.json  # VXE R1 SE+ 鼠标
+│   │   ├── vgn-f1-pro.json      # VGN 蜻蜓 F1 Pro 鼠标
 │   │   ├── aula-f87.json        # 狼蛛 F87 键盘
 │   │   └── xiberia-t7.json      # 西伯利亚 T7 耳机
 │   └── templates/             # 模板与语法示例（供照着写，不对应可用设备）
@@ -171,6 +191,9 @@ open24g-batmon/
 ├── tools/
 │   ├── validate-config.py     # 命令行校验配置（不开界面）
 │   └── check-filenames.py     # 检查文件名是否全为小写英文
+├── skills/                    # AI 技能包：让 AI 帮你写设备配置
+│   ├── README.md              # 装法（WorkBuddy / Claude Code / 通用）
+│   └── 24g-device-config/     # SKILL.md + 字段速查 + 协议形态 + 推断/校验脚本
 └── .github/
     ├── pull_request_template.md
     ├── ISSUE_TEMPLATE/new-device-config.yml

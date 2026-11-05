@@ -1,0 +1,62 @@
+{
+  "format": "dianliang-device-pack",
+  "version": 1,
+  "note": "查询帧 17 字节，末字节为校验：sum_neg（seed 0x4D），覆盖第 1~15 字节。回包同样以 08 04 开头，电量在回包第 6 字节，第 7 字节为充电标志位（未经验证，配置中未启用）。",
+  "devices": [
+    {
+      "key": "vgn-f1-pro",
+      "name": "VGN 蜻蜓 F1 Pro 鼠标",
+      "type": "mouse",
+      "wire": "2.4G",
+      "protocol": "私有协议 V1",
+
+      "transport": {
+        "type": "hid"
+      },
+
+      "match": {
+        "vid": "0x3554",
+        "pid": "0xF503",
+        "usage_page": "0xFF02",
+        "min_in": 17,
+        "min_out": 17
+      },
+
+      "read": {
+        "query": [
+          "08 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        ],
+        "checksum": {
+          "mode": "sum_neg",
+          "from": 1,
+          "to": 16,
+          "at": 16,
+          "seed": "0x4D"
+        },
+        "pad_to": 17,
+        "attempts": 2,
+        "listen_ms": 800,
+
+        "reply": {
+          "contains": [
+            "08 04"
+          ],
+          "checksum": {
+            "mode": "sum_neg",
+            "from": 1,
+            "to": 16,
+            "at": 16,
+            "seed": "0x4D"
+          },
+          "battery": {
+            "byte": 6
+          },
+          "range": [
+            1,
+            100
+          ]
+        }
+      }
+    }
+  ]
+}
