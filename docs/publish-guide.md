@@ -302,6 +302,6 @@ git push origin --delete v<旧版本>
 - [ ] `configs/` 里没有私人真实调试配置，3 套 `example-*.json` 仍为虚构值
 - [ ] exe 在干净的 Windows 上双击可启动，首次打开显示「暂无设备」
 - [ ] 发布包内 `configs/` 与 exe 同级，导入后能读到至少一台真实设备
-- [ ] 发布包内 `skills/24g-device-config/` 完整（8 个文件），且没有 `__pycache__`
+- [ ] 发布包内 `skills/24g-device-config/` 完整（9 个文件），且没有 `__pycache__`
 - [ ] Release 说明填了「新增设备配置」「已知问题」「校验和」
 - [ ] README 截图与当前界面一致

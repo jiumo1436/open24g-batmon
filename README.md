@@ -185,7 +185,7 @@ open24g-batmon/
 │   ├── contribute-guide.md    # 社区贡献指南（PR 硬性准入条件）
 │   ├── verify.md              # 手动验证清单（无硬编码 / 不崩溃 / 托盘 / 串口）
 │   ├── publish-guide.md       # 仓库简介、topics、git 命令、Release 流程
-│   ├── release-notes-0.2.5.md # 当前版本的发布说明（只保留最新一版）
+│   ├── release-notes-0.2.6.md # 当前版本的发布说明（只保留最新一版）
 │   ├── release-notes-template.md # Release 说明模板
 │   └── repo-checklist.md      # 仓库自检核对清单
 ├── assets/                    # 截图与演示素材

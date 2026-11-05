@@ -1,4 +1,4 @@
-open24g-batmon 0.2.5  ·  2.4G 外设电量监控
+open24g-batmon 0.2.6  ·  2.4G 外设电量监控
 ================================================
 
 【怎么用】
@@ -52,9 +52,11 @@ configs\templates\   模板与语法示例。这几份的 VID 统一写成 0x123
 装好后说一句「我有个 XX 设备，能加上吗」，它会带你查 VID/PID、分析抓包、
 定位电量字节，生成配置并校验。中途缺数据会停下来问你，不会瞎编参数。
 
-不装 AI 也能用：skills\24g-device-config\scripts\ 里两个脚本独立可跑，只需要
+不装 AI 也能用：skills\24g-device-config\scripts\ 里的脚本独立可跑，只需要
 Python 3，不用装 PySide6。
+  probe_device.py       列出本机接收器，还能发一帧把真实回包打出来
   analyze_frames.py     喂几帧回包，推断电量在第几字节、校验怎么算
+  read_once.py          按写好的配置真读一次，不用开软件就知道能不能用
   validate_config.py    校验写好的 JSON，规则和软件导入时完全一致
 
 写好后放进 configs\ 目录，回到软件「＋ 导入设备」里勾选导入即可，不用改代码。

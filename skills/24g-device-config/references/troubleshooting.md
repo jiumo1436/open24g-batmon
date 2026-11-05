@@ -19,7 +19,7 @@
 
 | 现象 | 常见原因 | 处理 |
 | --- | --- | --- |
-| 完全匹配不到设备 | `vid` / `pid` 写错；设备在蓝牙模式 | 设备管理器核对硬件 ID；确认连的是 2.4G 接收器 |
+| 完全匹配不到设备 | `vid` / `pid` 写错；设备在蓝牙模式 | 跑 `python scripts/probe_device.py --vendor` 对一遍真实的 VID/PID/usage_page；确认连的是 2.4G 接收器 |
 | 匹配不到，但 VID 是对的 | `usage_page` 或长度条件太严 | 删掉 `usage_page` / `min_in`，先放宽再收窄 |
 | 匹配到接口但一直没回包 | 漏了报告 ID；`pad_to` 长度不对；需要先握手 | `query` 首字节补报告 ID；`pad_to` = 整段长度；加 `pre` + `pre_delay_ms` |
 | 有回包但解析不出电量 | `contains` 写错，或字节下标差 1 | 锚点必须逐字节一致；注意下标从锚点算起 |
