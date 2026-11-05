@@ -6150,7 +6150,10 @@ class ImportDialog(QDialog):
             return
         self.b_test.setEnabled(False)
         self.b_ok.setEnabled(False)
-        w = _SpecTestWorker(picked, self.devs, self)
+        # 故意不挂 parent：这个对话框在 open_import() 里 exec() 完就 deleteLater()，
+        # Qt 会连带 delete 自己的子对象。线程要是还在发帧等回包，就成了
+        # 「QThread: Destroyed while thread is still running」→ 进程直接 abort。
+        w = _SpecTestWorker(picked, self.devs)
         w.progress.connect(self.msg.setText)
         w.row.connect(self._on_test_row)
         w.done.connect(self._on_test_done)
@@ -6189,25 +6192,41 @@ class ImportDialog(QDialog):
         super().closeEvent(event)
 
     def _stop_tester(self):
+        """关闭窗口前处理后台测试线程 —— 绝不在这里长时间阻塞 UI。
+
+        以前的写法是 `w.wait(12000)`：线程没跑完，用户点「取消」就得干等十几秒，
+        窗口标题栏直接挂上「无响应」。而 read_by_spec 在发帧等回包的过程中根本
+        不看 requestInterruption（它只在两台设备之间检查一次），等再久也等不到。
+
+        现在只给 150ms 收尾机会，剩下的交给主窗口回收站慢慢收；并且先
+        setParent(None) 摘掉父子关系 —— 否则对话框 deleteLater() 时，Qt 会
+        连带 delete 这个还在跑的 QThread，进程当场 abort（0xc0000409）。
+        """
         w = getattr(self, "_tester", None)
         if w is None:
             return
         self._tester = None
-        if not w.isRunning():
-            return
         w.requestInterruption()
-        if w.wait(12000):
-            return
-        # 还卡在某一台慢设备上：绝对不能就地丢引用。这个对话框是 open_import()
-        # 里的局部变量，exec() 一返回就被回收，self._tester 随之消失 —— 线程在
-        # 「仍在运行」的状态下析构，Qt 会 abort 整个进程（0xc0000409），跟主窗口
-        # 里那个 QThread 的坑是同一类。交给主窗口的回收站保管，它每秒确认
-        # isFinished() 之后才真正放引用。顺带断开信号，免得线程迟到 emit 打到
-        # 已经销毁的对话框上。
+        try:
+            w.setParent(None)
+        except Exception:
+            pass
+        if w.wait(150):
+            return          # 已经在收尾了，局部引用断掉就是安全析构
+        # 还卡在某一台慢设备上：信号必须断开，否则线程迟到的 emit 会打到已经
+        # 销毁的对话框上；引用交给主窗口的回收站，它每秒确认 isFinished() 后才放。
         host = self.parent()
         if host is not None and hasattr(host, "_retire_worker"):
             host._retire_worker(w)
         else:
+            with warnings.catch_warnings():
+                # 没连过的信号 disconnect 时 PySide6 会打 RuntimeWarning，属预期噪声
+                warnings.simplefilter("ignore")
+                for name in ("row", "progress", "done", "finished"):
+                    try:
+                        getattr(w, name).disconnect()
+                    except Exception:
+                        pass
             _ORPHAN_WORKERS.append(w)
 
     def export_template(self):
